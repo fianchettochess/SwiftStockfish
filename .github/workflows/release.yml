@@ -1,0 +1,179 @@
+name: Release binary
+
+# Build the Stockfish.xcframework in CI, publish it as a GitHub release asset,
+# and tag a commit whose Package.swift references that asset by `url:` +
+# `checksum:` (binary lives in the release, not the repo).
+#
+# WHY workflow_dispatch (and NOT a tag/push trigger): the checksum baked into
+# Package.swift is derived from the very release asset this run produces. A tag
+# trigger would create a chicken-and-egg — the tag's Package.swift would have to
+# already contain a checksum for a release that doesn't exist yet. By dispatching
+# with a version, we build, hash, rewrite, tag and release in one pass, so the
+# committed checksum always matches the attached zip.
+#
+# WHY main is never pushed: `main` is intentionally kept PATH-BASED (it links the
+# committed Frameworks/Stockfish.xcframework, so a plain local `swift build`
+# works). The url-rewritten / binary-removed commit lives ONLY on the release
+# TAG: we commit it on a DETACHED HEAD, tag that commit, and push just the tag.
+# `main` is never mutated by this workflow. This (1) keeps the documented
+# "main stays path-buildable" invariant true, (2) sidesteps branch protection on
+# main, and (3) makes every release re-runnable from a clean path-based main, so
+# the rewriter always starts from a path-based binaryTarget.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version / tag (e.g. 18.0.1)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    steps:
+      # Full history (fetch-depth: 0) so we can commit and tag.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Pre-flight: validate the version and fail fast if the tag/release
+      # already exists, BEFORE any build/commit/tag work. This makes a re-run
+      # with a colliding version abort cleanly instead of failing halfway and
+      # leaving a half-published state.
+      - name: Validate version and check for collisions
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Shape: N.N.N with an optional .suffix or -suffix (alphanumerics/dots).
+          if ! printf '%s' "${VERSION}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$'; then
+            echo "::error::invalid version '${VERSION}' — expected e.g. 18.0.1 (N.N.N[.-suffix])"
+            exit 1
+          fi
+          # Belt-and-suspenders: a valid git refname (catches stray slashes etc.).
+          if ! git check-ref-format "refs/tags/${VERSION}"; then
+            echo "::error::version '${VERSION}' is not a valid git tag name"
+            exit 1
+          fi
+          # Tag must not already exist locally or on the remote.
+          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null \
+            || git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+            echo "::error::tag '${VERSION}' already exists — pick a new version or delete the tag/release first"
+            exit 1
+          fi
+          # Release must not already exist.
+          if gh release view "${VERSION}" >/dev/null 2>&1; then
+            echo "::error::a release '${VERSION}' already exists — pick a new version or delete it first"
+            exit 1
+          fi
+          echo "version '${VERSION}' is valid and unused"
+
+      # Pin a known-good Xcode/toolchain for the xcframework build.
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Compile the multi-arch xcframework straight from the package's bundled
+      # Stockfish source -> Frameworks/Stockfish.xcframework. (NNUE nets are not
+      # needed to build the binary; they load at runtime.)
+      - name: Build xcframework
+        run: |
+          chmod +x Tools/build-xcframework.sh
+          ./Tools/build-xcframework.sh
+
+      # Zip exactly as SwiftPM expects a binaryTarget archive: ditto with
+      # --keepParent so the archive contains the Stockfish.xcframework directory,
+      # and --sequesterRsrc so resource forks don't perturb the bytes.
+      - name: Zip xcframework for SPM
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            Frameworks/Stockfish.xcframework Stockfish.xcframework.zip
+
+      # Checksum the SAME zip we will attach to the release. Because the hash and
+      # the asset come from one zip in one run, they always match — no build
+      # reproducibility requirement across runs.
+      - name: Compute checksum
+        id: checksum
+        run: |
+          CHECKSUM="$(swift package compute-checksum Stockfish.xcframework.zip)"
+          echo "checksum=$CHECKSUM" >> "$GITHUB_OUTPUT"
+          echo "Computed checksum: $CHECKSUM"
+
+      # Create the release and upload the asset FIRST, before tagging the
+      # url-rewritten commit. `gh release create` creates the tag (pointing at
+      # the dispatched commit) and attaches the zip in one call. Ordering the
+      # upload before the tag-push of the rewritten commit means the asset the
+      # `url:` points at always exists by the time anyone can resolve the tag.
+      - name: Create release and upload asset
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release create "${VERSION}" Stockfish.xcframework.zip \
+            --title "${VERSION}" \
+            --notes "Prebuilt multi-arch \`Stockfish.xcframework\` for SwiftStockfish ${VERSION}.
+
+          Consume via SwiftPM at this tag — \`Package.swift\` pins this asset by \`url:\` + \`checksum:\`. The binary lives in this release (not in git)."
+          # Verify the asset actually attached before we publish a manifest that
+          # references it by url.
+          if ! gh release view "${VERSION}" --json assets \
+              --jq '.assets[].name' | grep -qxF 'Stockfish.xcframework.zip'; then
+            echo "::error::release asset Stockfish.xcframework.zip did not upload"
+            exit 1
+          fi
+
+      # Rewrite ONLY the active binaryTarget block to the `url:`+`checksum:` form.
+      # The url must match the release asset URL pattern exactly:
+      #   /<owner>/<repo>/releases/download/<tag>/<asset>
+      # The rewriter is idempotent (path->url AND url->url) and skips the
+      # commented-out example block.
+      - name: Rewrite Package.swift to url + checksum
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+          REPO: ${{ github.repository }}
+          CHECKSUM: ${{ steps.checksum.outputs.checksum }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/rewrite_binary_target.py \
+            "https://github.com/${REPO}/releases/download/${VERSION}/Stockfish.xcframework.zip" \
+            "${CHECKSUM}"
+          # Fail fast if the rewrite produced an invalid manifest.
+          swift package dump-package >/dev/null
+
+      # The binary now lives in the release, so drop it from git and ignore it.
+      # --ignore-unmatch keeps this a no-op (not a hard failure) on a re-run or
+      # if the path is already untracked.
+      - name: Drop committed binary; ignore future binaries
+        run: |
+          git rm -r --ignore-unmatch Frameworks/Stockfish.xcframework
+          if ! grep -qxF 'Frameworks/*.xcframework' .gitignore; then
+            printf 'Frameworks/*.xcframework\n' >> .gitignore
+          fi
+
+      # Commit the url-rewritten / binary-removed tree on a DETACHED HEAD and move
+      # the release tag onto THAT commit. `main` is never pushed, so it stays
+      # path-based with the committed binary intact (the documented invariant).
+      # The release (created above) already made the tag on the dispatched commit;
+      # we force-update it to point at the rewritten commit and push just the tag.
+      - name: Commit rewritten manifest on a detached tag commit
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git checkout --detach
+          git add -A
+          git commit -m "Release ${VERSION}: binary xcframework as a release asset"
+          # Point the release tag at this detached commit (url-based, binary-less)
+          # and push only the tag — never main.
+          git tag -f "${VERSION}"
+          git push --force origin "refs/tags/${VERSION}"
