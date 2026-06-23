@@ -15,9 +15,10 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 - **binaryTarget-based, multi-arch:** the engine xcframework carries
   ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 slices. The
   bridge target carries no `.unsafeFlags`, so the package is version-publishable
-  once the binaryTarget is hosted remotely. Currently the binaryTarget is
-  referenced by **`path:` (local prototype)**; see the
-  [binaryTarget publish path](#binarytarget-publish-path-hosting-the-xcframework).
+  once the binaryTarget is hosted remotely. On `main` the binaryTarget is
+  referenced by **`path:`** (it links the committed xcframework, so `swift build`
+  just works); each release **tag** flips it to a checksummed **`url:`** pointing
+  at the release asset — see [Releasing](#releasing).
 
 ## Quick start
 
@@ -90,7 +91,8 @@ A Stockfish upgrade is a clean, mostly-automatic swap:
    version's `src/` tree (these headers feed the bridge and the `.cpp` remain for
    GPL source availability; re-copy `StockfishConfig.h` / the bridge if they
    changed upstream), then **rebuild `Frameworks/Stockfish.xcframework`** from the
-   same source (Fianchetto's `Tools/StockfishKit/build-xcframework.sh`). The
+   same source with [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh)
+   (the [`Release binary`](#releasing) workflow runs this same script in CI). The
    binary is what actually links — the kept `.cpp` are not compiled here.
 2. Bump `StockfishNetworks.stockfishVersion`.
 3. Update `StockfishNetworks.required` with the new version's net filenames.
@@ -130,44 +132,84 @@ a prebuilt `Stockfish.xcframework` referenced by a `binaryTarget`:
   they are simply **excluded from compilation** because the binary already
   contains them.
 
-## binaryTarget publish path (hosting the xcframework)
+## Releasing
 
-The package is already binaryTarget-based, but in **path mode** (the
-binaryTarget references `Frameworks/Stockfish.xcframework` directly). That is
-enough to consume it as a local path dependency. To publish it as a
-version-pinnable *remote* package, host the xcframework and swap to a checksummed
-URL:
+Releases are produced by the **`Release binary`** GitHub Actions workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)), not by hand.
+It turns the package into a proper **url-based binary-release package**: the
+xcframework is published as a release asset and the binary is no longer carried
+in git.
 
-1. **(Re)build the xcframework** if needed. Fianchetto's
-   `Tools/StockfishKit/build-xcframework.sh` produces `Stockfish.xcframework`
-   with the three slices above, applying `-mavx2 -mbmi2` *only* to the x86_64
-   slices.
-2. **Zip and host it** as a release asset (e.g. a GitHub release
-   `Stockfish.xcframework.zip`) and compute its checksum:
-   ```
-   swift package compute-checksum Stockfish.xcframework.zip
-   ```
-3. **Switch the binaryTarget** from `path:` to `url:` + `checksum:`:
-   ```swift
-   .binaryTarget(
-       name: "StockfishEngine",
-       url: "https://.../Stockfish.xcframework.zip",
-       checksum: "<sha256 from compute-checksum>"
-   )
-   ```
-   The Obj-C++ bridge stays as the thin `CStockfish` source target that links it;
-   the public umbrella header (`include/StockfishBridge.h`) remains the Swift
-   module's C interface.
-4. **NNUE nets:** keep using `StockfishNetworkLoader` at runtime, or bundle the
-   nets as a package resource — the loader's logic is identical either way.
+**To cut a release:** open the repo's **Actions** tab → **Release binary** → **Run
+workflow**, and enter a `version` (e.g. `18.0.1`). The workflow runs on
+`macos-14` and, in one pass:
+
+1. **Validates the version and checks for collisions** *first* — the input must
+   match `N.N.N` (with an optional `.`/`-` suffix) and be a valid git tag name,
+   and the tag/release must not already exist. A bad or already-used version
+   aborts the run **before** anything is built, so a re-run can't leave
+   half-published state.
+2. Builds `Frameworks/Stockfish.xcframework` by running
+   [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh) in CI (the same
+   multi-arch slices and SIMD flags as a local build; the NNUE nets are **not**
+   needed to build the binary).
+3. Zips it for SwiftPM:
+   `ditto -c -k --sequesterRsrc --keepParent Frameworks/Stockfish.xcframework Stockfish.xcframework.zip`.
+4. Computes the checksum of **that exact zip** with
+   `swift package compute-checksum`.
+5. **Creates the GitHub release** for `<version>` and uploads
+   `Stockfish.xcframework.zip` as its asset, then verifies the asset attached —
+   so the asset the `url:` will point at exists *before* any tag resolves to the
+   url-based manifest.
+6. **Rewrites the active binaryTarget** in `Package.swift` from `path:` to
+   `url:` + `checksum:`, pointing the url at the release asset
+   (`…/releases/download/<version>/Stockfish.xcframework.zip`) with the checksum
+   from step 4, and `swift package dump-package`-validates the result. (Only the
+   active target is touched; the commented example above it is left alone, and
+   the rewrite is idempotent across `path:` and an already-`url:` form — see the
+   rewriter at
+   [`.github/scripts/rewrite_binary_target.py`](.github/scripts/rewrite_binary_target.py).)
+7. **Removes the committed binary**
+   (`git rm -r --ignore-unmatch Frameworks/Stockfish.xcframework`) and adds
+   `Frameworks/*.xcframework` to `.gitignore` — the binary now lives in the
+   release, not the repo.
+8. Commits that url-rewritten / binary-removed tree **on a detached HEAD**, then
+   force-points the `<version>` tag at *that* commit and pushes **only the tag**.
+   **`main` is never pushed** — it keeps its committed binary and stays
+   path-based; the url form lives solely on the tag.
+
+Because the checksum and the attached asset are computed from the **same zip in
+the same run**, they always match — there is no build-reproducibility concern,
+and the url exactly matches the asset URL pattern
+`/releases/download/<tag>/Stockfish.xcframework.zip`.
+
+**After the first release**, consumers pin a version tag and SwiftPM fetches the
+xcframework from the release by `url:` + `checksum:` — the package is a clean
+url-based binary package, with the binary out of git. `main` itself stays
+**path-based** (it links the committed xcframework, which the workflow never
+removes from `main`) so a plain local `swift build` keeps working; only the
+release tags carry the url form. Because every release starts from a clean
+path-based `main`, the workflow is fully re-runnable.
+
+> The existing **`18.0.0`** tag is the original **path-based** form (binary
+> committed to the repo). The first CI release supersedes it with the url-based
+> form described above.
+
+**NNUE nets** are orthogonal to all of this: keep using `StockfishNetworkLoader`
+at runtime, or bundle the nets as a package resource — the loader's logic is
+identical regardless of how the engine binary is hosted.
 
 ## Package layout
 
 ```
 SwiftStockfish/
   Package.swift
+  .github/
+    workflows/release.yml        # "Release binary" workflow (builds + publishes + url-rewrites)
+    scripts/rewrite_binary_target.py  # flips the active binaryTarget path: -> url:+checksum: in CI
   Frameworks/
-    Stockfish.xcframework        # PREBUILT multi-arch engine (path binaryTarget)
+    Stockfish.xcframework        # PREBUILT multi-arch engine — path binaryTarget on `main`;
+                                 #   a release tag drops it here and serves it from the release asset
   Sources/
     CStockfish/                  # bridge-only target (links the engine binary)
       include/StockfishBridge.h  # PUBLIC umbrella header (publicHeadersPath)

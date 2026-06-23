@@ -39,12 +39,14 @@
 //     consumed as a version-pinned remote dependency once the binaryTarget is
 //     hosted remotely.
 //
-//   * PATH MODE (local prototype): the binaryTarget below references the
-//     xcframework by `path:`. To publish remotely, host the xcframework as a
-//     release asset (e.g. a GitHub release `Stockfish.xcframework.zip`), compute
-//     its checksum with `swift package compute-checksum Stockfish.xcframework.zip`,
-//     and swap `path:` for `url:` + `checksum:`. See the README's
-//     "binaryTarget migration path".
+//   * PATH MODE on `main`, URL MODE at a release tag. The active binaryTarget
+//     below references the xcframework by `path:` so a plain `swift build` works
+//     against the committed binary. The release workflow
+//     (.github/workflows/release.yml, run via Actions → "Release binary") builds
+//     the xcframework, publishes it as a release asset, and rewrites THIS
+//     binaryTarget to `url:` + `checksum:` in the tagged commit — so each release
+//     tag is a clean url-based binary package while `main` stays path-buildable.
+//     See the README's "Releasing" section.
 
 import PackageDescription
 
@@ -80,11 +82,13 @@ let package = Package(
         ),
     ],
     targets: [
-        // The prebuilt Stockfish engine, multi-arch. Path mode for the local
-        // prototype; for a remote release swap to:
+        // The prebuilt Stockfish engine, multi-arch. PATH MODE on `main` (links
+        // the committed Frameworks/Stockfish.xcframework, so `swift build` just
+        // works). At release time the CI rewrites THIS block — and only this
+        // block, never the commented example — to the url+checksum form:
         //   .binaryTarget(
         //       name: "StockfishEngine",
-        //       url: "https://.../Stockfish.xcframework.zip",
+        //       url: "https://.../releases/download/<version>/Stockfish.xcframework.zip",
         //       checksum: "<sha256 from `swift package compute-checksum`>"
         //   )
         .binaryTarget(

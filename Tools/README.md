@@ -6,6 +6,13 @@ prefix header) into **`Frameworks/Stockfish.xcframework`**, the static-library
 binary that the `StockfishEngine` binaryTarget links. Day-to-day builds never
 recompile Stockfish — they just link this binary.
 
+> **CI runs this script too.** The repo's `Release binary` workflow
+> (`.github/workflows/release.yml`) runs `Tools/build-xcframework.sh` on
+> `macos-14`, then zips the result, publishes it as a release asset, and
+> rewrites `Package.swift`'s binaryTarget to a checksummed `url:`. So this is
+> both the local "regenerate the committed binary" tool and the build step of a
+> release. See the README's [Releasing](../README.md#releasing) section.
+
 ## When to re-run
 
 - **Bumping Stockfish** — after replacing the engine source under
@@ -35,7 +42,11 @@ the per-arch SIMD flags, `-mavx2 -mbmi2` on the x86_64 slices). The NNUE
 network is **not** embedded — it loads at runtime from a `.nnue` resource, so
 the binary stays small and the net can be swapped without a recompile.
 
-After regenerating, commit the updated `Frameworks/Stockfish.xcframework`.
+After regenerating, commit the updated `Frameworks/Stockfish.xcframework` on
+`main` (path mode keeps the binary in git so local `swift build` works). To
+publish it for consumers, don't commit a binary by hand — run the `Release
+binary` workflow, which builds, uploads it as a release asset, and switches the
+binaryTarget to `url:` for that tag.
 
 ## Licensing
 
