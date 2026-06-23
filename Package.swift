@@ -55,10 +55,18 @@ let package = Package(
         .iOS(.v13),
     ],
     products: [
+        // Both products are `.static`. This package wraps a static-library
+        // xcframework plus a thin bridge, so a dynamic framework buys nothing —
+        // and static linkage lets a (coverage-)instrumented bridge resolve the
+        // LLVM profile runtime from the consuming target, instead of failing a
+        // standalone package-framework link with an undefined
+        // `___llvm_profile_runtime`.
+        //
         // The high-level Swift API (engine wrapper + NNUE loader) — the
         // primary interface for most consumers.
         .library(
             name: "SwiftStockfish",
+            type: .static,
             targets: ["SwiftStockfish"]
         ),
         // The low-level C/Obj-C++ bridge (sf_create / sf_send_command / …),
@@ -67,6 +75,7 @@ let package = Package(
         // keep its existing start/stop generation logic during validation.)
         .library(
             name: "CStockfish",
+            type: .static,
             targets: ["CStockfish"]
         ),
     ],
