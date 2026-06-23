@@ -2,3 +2,5 @@
 *.nnue
 .DS_Store
 .swiftpm/
+Frameworks/*.xcframework
+Stockfish.xcframework.zip

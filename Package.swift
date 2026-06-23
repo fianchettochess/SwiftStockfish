@@ -93,7 +93,8 @@ let package = Package(
         //   )
         .binaryTarget(
             name: "StockfishEngine",
-            path: "Frameworks/Stockfish.xcframework"
+            url: "https://github.com/jaredbrewer/SwiftStockfish/releases/download/18.0.0/Stockfish.xcframework.zip",
+            checksum: "27541bddfe90d0b929b04493c0b9f3f8a4d695061e5f83da6409c63d09d8d40b"
         ),
         // The Obj-C++ bridge — links the engine binary for symbols and compiles
         // ONLY itself. (The engine's `.cpp` under `stockfish/` are kept for GPL
