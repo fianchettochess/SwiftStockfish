@@ -18,7 +18,8 @@ import CryptoKit
 /// Ensures a directory holds exactly the NNUE networks the engine requires.
 ///
 /// ```swift
-/// let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+/// let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+/// let dir = support.appendingPathComponent("stockfish-nets")
 /// try await StockfishNetworkLoader().ensure(in: dir) { p in
 ///     print("\(p.file): \(p.bytesDownloaded)/\(p.totalBytes)")
 /// }
@@ -131,7 +132,7 @@ public struct StockfishNetworkLoader: Sendable {
             guard !network.shaPrefix.isEmpty else {
                 throw LoaderError.invalidNetworkName(network.filename)
             }
-            let destination = directory.appending(path: network.filename)
+            let destination = directory.appendingPathComponent(network.filename)
 
             // Keep it if present and valid.
             if fm.fileExists(atPath: destination.path),
@@ -230,6 +231,17 @@ public struct StockfishNetworkLoader: Sendable {
     /// then return its URL (caller verifies + installs). Uses URLSession's
     /// download-to-disk path — NOT the `bytes(from:)` async byte stream, which
     /// would iterate ~100M times for the 100 MB big net.
+    ///
+    /// Implemented with `URLSession.downloadTask(with:completionHandler:)`
+    /// bridged through `withCheckedThrowingContinuation` so the floor stays at
+    /// iOS 13 / macOS 10.15 (the async `download(from:)` is iOS 15 / macOS 12).
+    ///
+    /// CRITICAL temp-file lifetime: `downloadTask`'s completion handler is
+    /// handed a URL in the system temp dir that the OS DELETES the instant the
+    /// handler returns. So the handler must SYNCHRONOUSLY relocate that file to
+    /// our own stable `.part` URL (alongside the destination) BEFORE resuming
+    /// the continuation, and resume with the stable URL — never the OS temp URL,
+    /// which would already be gone by the time the caller touches it.
     private func downloadToTemp(
         _ network: StockfishNetworks.Network,
         from source: Source,
@@ -237,38 +249,69 @@ public struct StockfishNetworkLoader: Sendable {
         progress: (@Sendable (Progress) -> Void)?
     ) async throws -> URL {
         let url = source.url(for: network.filename)
-        let (downloadedURL, response) = try await session.download(from: url)
 
-        if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
-            try? FileManager.default.removeItem(at: downloadedURL)
-            throw URLError(.badServerResponse)
+        // Our stable destination for the bytes: a hidden `.part` alongside the
+        // final file so the later install move stays on one volume. Computed up
+        // front so the @Sendable completion handler can capture it as a plain
+        // value (keeping it Swift-6 concurrency-clean — no `self` capture).
+        let tempURL = directory.appendingPathComponent(
+            ".\(network.filename).\(UUID().uuidString).part"
+        )
+
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+            let task = session.downloadTask(with: url) { downloadedURL, response, error in
+                // Transport-level failure (no file produced).
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let downloadedURL else {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+
+                // HTTP status check — same behavior as before: non-2xx → throw.
+                if let http = response as? HTTPURLResponse,
+                   !(200...299).contains(http.statusCode) {
+                    continuation.resume(throwing: URLError(.badServerResponse))
+                    return
+                }
+
+                // RELOCATE NOW, synchronously, before this handler returns —
+                // the OS deletes `downloadedURL` as soon as we return. Move
+                // first (fast, same-volume); fall back to copy if the system
+                // temp dir is on a different volume than `directory`.
+                let fm = FileManager.default
+                try? fm.removeItem(at: tempURL)
+                do {
+                    do {
+                        try fm.moveItem(at: downloadedURL, to: tempURL)
+                    } catch {
+                        try fm.copyItem(at: downloadedURL, to: tempURL)
+                    }
+                } catch {
+                    continuation.resume(throwing: LoaderError.fileSystem(
+                        "could not stage download for \(network.filename): \(error.localizedDescription)"
+                    ))
+                    return
+                }
+
+                // Coarse progress: without a URLSessionDownloadDelegate we can't
+                // surface byte-by-byte counts, so report completion only.
+                if let progress {
+                    let total = (response?.expectedContentLength ?? -1) > 0
+                        ? response!.expectedContentLength
+                        : Progress.unknownTotalBytes
+                    progress(Progress(file: network.filename,
+                                      bytesDownloaded: max(total, 0),
+                                      totalBytes: total))
+                }
+
+                // Resume with the STABLE url; `downloadedURL` is about to vanish.
+                continuation.resume(returning: tempURL)
+            }
+            task.resume()
         }
-
-        // Move into a hidden temp alongside the destination so the final install
-        // move stays on one volume. `download(from:)`'s file lives in the system
-        // temp dir (possibly a different volume), so fall back to copy across.
-        let tempURL = directory.appending(path: ".\(network.filename).\(UUID().uuidString).part")
-        try? FileManager.default.removeItem(at: tempURL)
-        do {
-            try FileManager.default.moveItem(at: downloadedURL, to: tempURL)
-        } catch {
-            try FileManager.default.copyItem(at: downloadedURL, to: tempURL)
-            try? FileManager.default.removeItem(at: downloadedURL)
-        }
-
-        // Coarse progress: `download(from:)` doesn't surface byte-by-byte counts
-        // without a URLSessionDownloadDelegate, so report completion only.
-        // (Streaming progress via a delegate is a documented refinement.)
-        if let progress {
-            let total = response.expectedContentLength > 0
-                ? response.expectedContentLength
-                : Progress.unknownTotalBytes
-            progress(Progress(file: network.filename,
-                              bytesDownloaded: max(total, 0),
-                              totalBytes: total))
-        }
-
-        return tempURL
     }
 
     // MARK: - Verification
@@ -285,11 +328,15 @@ public struct StockfishNetworkLoader: Sendable {
         guard let handle = try? FileHandle(forReadingFrom: url) else {
             return false
         }
-        defer { try? handle.close() }
+        // `closeFile()` / `readData(ofLength:)` are the classic (non-throwing)
+        // FileHandle APIs available since iOS 13.0 / macOS 10.15.0. Their
+        // throwing replacements `close()` / `read(upToCount:)` are 10.15.4-only,
+        // which is above this package's 10.15.0 floor.
+        defer { handle.closeFile() }
 
         var hasher = SHA256()
         while true {
-            let chunk = try handle.read(upToCount: 1 << 20) ?? Data()
+            let chunk = handle.readData(ofLength: 1 << 20)
             if chunk.isEmpty { break }
             hasher.update(data: chunk)
         }

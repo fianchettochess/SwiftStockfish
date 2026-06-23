@@ -1,7 +1,15 @@
 // swift-tools-version: 6.0
 //
-// (tools 6.0, not 5.9: `.macOS(.v15)` / `.iOS(.v18)` were only added to
-// PackageDescription in 6.0 — see the spec's "5.9 or 6.0" allowance.)
+// DEPLOYMENT FLOOR: iOS 13.0 / macOS 10.15 (Catalina). This is set purely by
+// SWIFT-CONCURRENCY BACK-DEPLOYMENT — `async`/`await`, `AsyncStream`,
+// `withCheckedThrowingContinuation` and friends back-deploy to exactly iOS 13 /
+// macOS 10.15, no further. The Stockfish engine itself imposes no OS floor; the
+// network loader was written to stay on iOS-13-era Foundation APIs
+// (`URLSession.downloadTask(with:completionHandler:)` rather than the iOS-15
+// async `download(from:)`, `appendingPathComponent(_:)` rather than the iOS-16
+// `appending(path:)`). The prebuilt `Stockfish.xcframework` is compiled with
+// matching minimums (iOS 13.0 / macOS 10.15) — see Tools/build-xcframework.sh;
+// re-run that script (and keep its minimums in sync) when bumping Stockfish.
 //
 // SwiftStockfish — a Swift Package Manager wrapper around the Stockfish chess
 // engine (GPL-3.0). See README.md for the full story; the highlights:
@@ -43,8 +51,8 @@ import PackageDescription
 let package = Package(
     name: "SwiftStockfish",
     platforms: [
-        .macOS(.v15),
-        .iOS(.v18),
+        .macOS(.v10_15),
+        .iOS(.v13),
     ],
     products: [
         // The high-level Swift API (engine wrapper + NNUE loader) — the
