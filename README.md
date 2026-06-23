@@ -1,19 +1,23 @@
 # SwiftStockfish
 
 A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
-chess engine. It compiles Stockfish's C++ source plus a small Objective-C++
-bridge into a `CStockfish` target, and exposes a clean Swift API
-(`StockfishEngine`) plus a version-aware NNUE network manager
-(`StockfishNetworkLoader`) in the `SwiftStockfish` target.
+chess engine. The engine ships as a **prebuilt, multi-arch `binaryTarget`**
+(`Stockfish.xcframework`); a small Objective-C++ bridge in the `CStockfish`
+target links that binary and drives Stockfish's UCI loop. The `SwiftStockfish`
+target exposes a clean Swift API (`StockfishEngine`) plus a version-aware NNUE
+network manager (`StockfishNetworkLoader`).
 
-This whole package is a **GPL-3.0** artifact because it embeds Stockfish — see
+This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 [Licensing](#licensing).
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
 - Platforms: **macOS 15+, iOS 18+**.
-- **Prototype status:** builds from source for **Apple Silicon (arm64) only**.
-  See [Prototype limitations](#prototype-limitations) and the
-  [binaryTarget migration path](#binarytarget-migration-path-multi-arch--publishing).
+- **binaryTarget-based, multi-arch:** the engine xcframework carries
+  ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 slices. The
+  bridge target carries no `.unsafeFlags`, so the package is version-publishable
+  once the binaryTarget is hosted remotely. Currently the binaryTarget is
+  referenced by **`path:` (local prototype)**; see the
+  [binaryTarget publish path](#binarytarget-publish-path-hosting-the-xcframework).
 
 ## Quick start
 
@@ -83,8 +87,11 @@ engine is created, because Stockfish exits the process on a missing net.
 A Stockfish upgrade is a clean, mostly-automatic swap:
 
 1. Replace the engine source in `Sources/CStockfish/stockfish/` with the new
-   version's `src/` tree (and re-copy `StockfishConfig.h` / the bridge if they
-   changed upstream).
+   version's `src/` tree (these headers feed the bridge and the `.cpp` remain for
+   GPL source availability; re-copy `StockfishConfig.h` / the bridge if they
+   changed upstream), then **rebuild `Frameworks/Stockfish.xcframework`** from the
+   same source (Fianchetto's `Tools/StockfishKit/build-xcframework.sh`). The
+   binary is what actually links — the kept `.cpp` are not compiled here.
 2. Bump `StockfishNetworks.stockfishVersion`.
 3. Update `StockfishNetworks.required` with the new version's net filenames.
    The real filenames live in the engine's `evaluate.h`
@@ -97,54 +104,60 @@ old ones** (it deletes any `nn-*.nnue` in the directory that isn't in the
 required set), so a directory that held the 18 nets becomes a directory holding
 exactly the 18.1 nets with no manual cleanup.
 
-## Prototype limitations
+## How the engine is built and linked
 
-This prototype **builds Stockfish from source and targets Apple Silicon (arm64)
-only.** Two reasons, both about build flags:
+The engine is **not** compiled from source by this package anymore. It ships as
+a prebuilt `Stockfish.xcframework` referenced by a `binaryTarget`:
 
-- **Per-arch SIMD flags.** `StockfishConfig.h` enables `USE_AVX2` / `USE_PEXT`
-  for x86_64, and those intrinsics require `-mavx2 -mbmi2`. SwiftPM cannot apply
-  C++ flags per-architecture, so a single source target can't satisfy both
-  arm64 and x86_64. On arm64 the NEON + DOTPROD paths the config enables are
-  baseline for Apple clang and need no extra arch flag, so arm64 builds cleanly
-  with no special handling. (If you build for an x86_64 destination from this
-  source target it will fail to compile the AVX2 intrinsics — expected.)
+- **Multi-arch out of the box.** The xcframework carries three slices —
+  ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 — built from the
+  same Stockfish 18 source. The per-arch SIMD flags (`StockfishConfig.h`'s
+  `USE_AVX2` / `USE_PEXT` need `-mavx2 -mbmi2`) are applied to the x86_64 slices
+  at *build* time, inside the xcframework. A prebuilt binary carries no compile
+  flags, so SwiftPM's "can't pass C++ flags per-architecture" limitation no
+  longer applies — every supported arch links.
 
-- **`.unsafeFlags` → not version-publishable.** The `CStockfish` target uses
-  `.unsafeFlags(["-include", "StockfishConfig.h"])` to force-include the prefix
-  header. SwiftPM forbids `.unsafeFlags` in a package consumed as a *version-
-  pinned remote* dependency. So this package can be consumed as a **local path
-  dependency** (fine for an app's first integration) but **not** via
-  `.package(url:..., from:...)` as-is.
+- **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target compiles
+  only the Obj-C++ bridge and carries **no `.unsafeFlags`**. The SIMD/NNUE
+  config that previously needed a force-included prefix header now lives in the
+  binary; the bridge gets it via a plain `#include "StockfishConfig.h"` (a
+  source include, not a compiler flag). SwiftPM forbids `.unsafeFlags` only in
+  version-pinned *remote* dependencies, so removing them is what makes the
+  package publishable.
 
-Both limitations are removed by the binaryTarget migration below.
+- **GPL source availability.** The Stockfish `.cpp` are kept under
+  `Sources/CStockfish/stockfish/` (their headers feed the bridge's `#include`s);
+  they are simply **excluded from compilation** because the binary already
+  contains them.
 
-## binaryTarget migration path (multi-arch + publishing)
+## binaryTarget publish path (hosting the xcframework)
 
-To ship multi-arch and become a publishable, version-pinnable remote package,
-replace the source `CStockfish` target with a prebuilt, checksummed
-`binaryTarget`:
+The package is already binaryTarget-based, but in **path mode** (the
+binaryTarget references `Frameworks/Stockfish.xcframework` directly). That is
+enough to consume it as a local path dependency. To publish it as a
+version-pinnable *remote* package, host the xcframework and swap to a checksummed
+URL:
 
-1. **Prebuild the xcframework.** Fianchetto's
-   `Tools/StockfishKit/build-xcframework.sh` already does exactly this — it
-   compiles the same Stockfish source into `Stockfish.xcframework` with slices
-   for iphoneos (arm64), iphonesimulator (arm64 + x86_64) and macosx
-   (arm64 + x86_64), applying `-mavx2 -mbmi2` *only* to the x86_64 slices. A
-   prebuilt binary carries no compile flags, so it sidesteps both the per-arch
-   and `.unsafeFlags` problems at once.
-2. **Host it** as a release asset (e.g. a GitHub release) and compute its
-   checksum with `swift package compute-checksum Stockfish.xcframework.zip`.
-3. **Switch the target** to:
+1. **(Re)build the xcframework** if needed. Fianchetto's
+   `Tools/StockfishKit/build-xcframework.sh` produces `Stockfish.xcframework`
+   with the three slices above, applying `-mavx2 -mbmi2` *only* to the x86_64
+   slices.
+2. **Zip and host it** as a release asset (e.g. a GitHub release
+   `Stockfish.xcframework.zip`) and compute its checksum:
+   ```
+   swift package compute-checksum Stockfish.xcframework.zip
+   ```
+3. **Switch the binaryTarget** from `path:` to `url:` + `checksum:`:
    ```swift
    .binaryTarget(
-       name: "CStockfish",
+       name: "StockfishEngine",
        url: "https://.../Stockfish.xcframework.zip",
        checksum: "<sha256 from compute-checksum>"
    )
    ```
-   The Obj-C++ bridge can either live inside the xcframework or stay as a thin
-   companion source target that links it; the public umbrella header
-   (`include/StockfishBridge.h`) stays the Swift module's C interface either way.
+   The Obj-C++ bridge stays as the thin `CStockfish` source target that links it;
+   the public umbrella header (`include/StockfishBridge.h`) remains the Swift
+   module's C interface.
 4. **NNUE nets:** keep using `StockfishNetworkLoader` at runtime, or bundle the
    nets as a package resource — the loader's logic is identical either way.
 
@@ -153,12 +166,15 @@ replace the source `CStockfish` target with a prebuilt, checksummed
 ```
 SwiftStockfish/
   Package.swift
+  Frameworks/
+    Stockfish.xcframework        # PREBUILT multi-arch engine (path binaryTarget)
   Sources/
-    CStockfish/                  # C++ engine + Obj-C++ bridge (one target)
+    CStockfish/                  # bridge-only target (links the engine binary)
       include/StockfishBridge.h  # PUBLIC umbrella header (publicHeadersPath)
-      StockfishConfig.h          # force-included prefix header (defines)
+      StockfishConfig.h          # config header, #included by the bridge (no force-include)
       StockfishBridge.mm         # the bridge: drives Stockfish's UCI loop over pipes
-      stockfish/                 # the copied Stockfish src/ tree (~23 .cpp + headers)
+      stockfish/                 # the copied Stockfish src/ tree: HEADERS feed the
+                                 #   bridge; .cpp kept for GPL but EXCLUDED from build
     SwiftStockfish/              # Swift API
       StockfishEngine.swift      # the engine wrapper (AsyncStream of UCI output)
       StockfishNetworks.swift    # the net manifest (version + required filenames)
@@ -171,8 +187,10 @@ SwiftStockfish/
 ## Licensing
 
 Stockfish is licensed under the **GNU General Public License, version 3**. This
-package compiles Stockfish's source directly into its output, so the entire
-SwiftStockfish package is a GPL-3.0 work and is distributed under GPL-3.0. See
+package ships Stockfish (as the prebuilt `Stockfish.xcframework`, built from the
+Stockfish source kept under `Sources/CStockfish/stockfish/`) and links it into
+its output, so the entire SwiftStockfish package is a GPL-3.0 work and is
+distributed under GPL-3.0. See
 [`LICENSE`](LICENSE). If you consume this package in an application, that
 linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately-
 distributable GPL component.
@@ -182,10 +200,12 @@ distributable GPL component.
 - **swift-tools-version is `6.0`, not `5.9`.** `.macOS(.v15)` / `.iOS(.v18)`
   were only added to `PackageDescription` in 6.0; with 5.9 the manifest fails to
   compile. The spec explicitly allowed "5.9 or 6.0".
-- **An extra `.headerSearchPath(".")`** was added to the `CStockfish` cxx
-  settings (alongside the spec's `.headerSearchPath` to the engine dir) so the
-  `-include StockfishConfig.h` force-include and the bridge's
-  `#include "StockfishConfig.h"` resolve from the target root.
+- **An extra `.headerSearchPath(".")`** is on the `CStockfish` cxx settings
+  (alongside the engine-dir `.headerSearchPath`) so the bridge's
+  `#include "StockfishConfig.h"` resolves from the target root. The force-include
+  `.unsafeFlag` that previously also relied on this path was **removed** as part
+  of the binaryTarget migration — the bridge now `#include`s the config as its
+  first line, so the target carries no `.unsafeFlags` and is version-publishable.
 - **The bridge's `#include "src/…"` paths were changed to bare includes** (e.g.
   `#include "bitboard.h"`) to match the new `stockfish/` layout, resolved via the
   `.headerSearchPath("stockfish")`. Noted inline in `StockfishBridge.mm`.
