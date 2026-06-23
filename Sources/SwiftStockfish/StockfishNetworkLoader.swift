@@ -226,8 +226,10 @@ public struct StockfishNetworkLoader: Sendable {
         )
     }
 
-    /// Stream `network` from `source` into a temp file in `directory`, reporting
-    /// per-byte progress. Returns the temp file URL (caller verifies + moves).
+    /// Download `network` from `source` straight to a temp file in `directory`,
+    /// then return its URL (caller verifies + installs). Uses URLSession's
+    /// download-to-disk path — NOT the `bytes(from:)` async byte stream, which
+    /// would iterate ~100M times for the 100 MB big net.
     private func downloadToTemp(
         _ network: StockfishNetworks.Network,
         from source: Source,
@@ -235,42 +237,35 @@ public struct StockfishNetworkLoader: Sendable {
         progress: (@Sendable (Progress) -> Void)?
     ) async throws -> URL {
         let url = source.url(for: network.filename)
-        let (bytes, response) = try await session.bytes(from: url)
+        let (downloadedURL, response) = try await session.download(from: url)
 
         if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+            try? FileManager.default.removeItem(at: downloadedURL)
             throw URLError(.badServerResponse)
         }
 
-        let totalBytes = response.expectedContentLength > 0
-            ? response.expectedContentLength
-            : Progress.unknownTotalBytes
-
-        // Temp file alongside the destination so the final move stays on one
-        // volume (a cross-volume move would copy, defeating atomicity).
+        // Move into a hidden temp alongside the destination so the final install
+        // move stays on one volume. `download(from:)`'s file lives in the system
+        // temp dir (possibly a different volume), so fall back to copy across.
         let tempURL = directory.appending(path: ".\(network.filename).\(UUID().uuidString).part")
-        FileManager.default.createFile(atPath: tempURL.path, contents: nil)
-        guard let handle = try? FileHandle(forWritingTo: tempURL) else {
-            throw LoaderError.fileSystem("could not open temp file for \(network.filename)")
+        try? FileManager.default.removeItem(at: tempURL)
+        do {
+            try FileManager.default.moveItem(at: downloadedURL, to: tempURL)
+        } catch {
+            try FileManager.default.copyItem(at: downloadedURL, to: tempURL)
+            try? FileManager.default.removeItem(at: downloadedURL)
         }
-        defer { try? handle.close() }
 
-        var downloaded: Int64 = 0
-        var buffer = Data()
-        buffer.reserveCapacity(64 * 1024)
-
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 64 * 1024 {
-                try handle.write(contentsOf: buffer)
-                downloaded += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
-                progress?(Progress(file: network.filename, bytesDownloaded: downloaded, totalBytes: totalBytes))
-            }
-        }
-        if !buffer.isEmpty {
-            try handle.write(contentsOf: buffer)
-            downloaded += Int64(buffer.count)
-            progress?(Progress(file: network.filename, bytesDownloaded: downloaded, totalBytes: totalBytes))
+        // Coarse progress: `download(from:)` doesn't surface byte-by-byte counts
+        // without a URLSessionDownloadDelegate, so report completion only.
+        // (Streaming progress via a delegate is a documented refinement.)
+        if let progress {
+            let total = response.expectedContentLength > 0
+                ? response.expectedContentLength
+                : Progress.unknownTotalBytes
+            progress(Progress(file: network.filename,
+                              bytesDownloaded: max(total, 0),
+                              totalBytes: total))
         }
 
         return tempURL
