@@ -163,11 +163,13 @@ jobs:
           swift package dump-package >/dev/null
 
       # The binary now lives in the release, so drop it from git and ignore it.
-      # --ignore-unmatch keeps this a no-op (not a hard failure) on a re-run or
-      # if the path is already untracked.
+      # -f forces removal even though the Build step just rebuilt the xcframework
+      # over the committed one (its bytes differ, so `git rm` without -f refuses
+      # to delete "locally modified" files). --ignore-unmatch keeps this a no-op
+      # on a re-run or if the path is already untracked.
       - name: Drop committed binary; ignore future binaries
         run: |
-          git rm -r --ignore-unmatch Frameworks/Stockfish.xcframework
+          git rm -rf --ignore-unmatch Frameworks/Stockfish.xcframework
           if ! grep -qxF 'Frameworks/*.xcframework' .gitignore; then
             printf 'Frameworks/*.xcframework\n' >> .gitignore
           fi
