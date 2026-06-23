@@ -47,9 +47,19 @@ let package = Package(
         .iOS(.v18),
     ],
     products: [
+        // The high-level Swift API (engine wrapper + NNUE loader) — the
+        // primary interface for most consumers.
         .library(
             name: "SwiftStockfish",
             targets: ["SwiftStockfish"]
+        ),
+        // The low-level C/Obj-C++ bridge (sf_create / sf_send_command / …),
+        // for consumers that want to drive the UCI loop with their own engine
+        // lifecycle rather than the Swift wrapper. (Fianchetto uses this to
+        // keep its existing start/stop generation logic during validation.)
+        .library(
+            name: "CStockfish",
+            targets: ["CStockfish"]
         ),
     ],
     targets: [
