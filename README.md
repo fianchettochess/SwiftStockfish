@@ -140,15 +140,19 @@ It turns the package into a proper **url-based binary-release package**: the
 xcframework is published as a release asset and the binary is no longer carried
 in git.
 
-**To cut a release:** open the repo's **Actions** tab → **Release binary** → **Run
-workflow**, and enter a `version` (e.g. `18.0.1`). The workflow runs on
-`macos-14` and, in one pass:
+**To cut a release:** push a semver **tag** (e.g. `git tag 18.0.1 && git push
+origin 18.0.1`) — the push triggers the workflow. *Or*, as a fallback for
+re-cutting a version whose tag already exists, run it manually: **Actions** →
+**Release binary** → **Run workflow** → enter the `version`. Either way the
+workflow runs on `macos-14` and, in one pass:
 
-1. **Validates the version and checks for collisions** *first* — the input must
-   match `N.N.N` (with an optional `.`/`-` suffix) and be a valid git tag name,
-   and the tag/release must not already exist. A bad or already-used version
-   aborts the run **before** anything is built, so a re-run can't leave
-   half-published state.
+1. **Validates the version and checks for collisions** *first* — the version (the
+   pushed tag name, or the dispatch input) must match `N.N.N` (with an optional
+   `.`/`-` suffix) and be a valid git tag name, and the **release** must not
+   already exist. (On manual dispatch the *tag* must not exist either, since the
+   run creates it; on a tag push the tag *is* the trigger and gets force-moved.)
+   A bad or already-released version aborts the run **before** anything is built,
+   so a re-run can't leave half-published state.
 2. Builds `Frameworks/Stockfish.xcframework` by running
    [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh) in CI (the same
    multi-arch slices and SIMD flags as a local build; the NNUE nets are **not**
@@ -176,7 +180,9 @@ workflow**, and enter a `version` (e.g. `18.0.1`). The workflow runs on
 8. Commits that url-rewritten / binary-removed tree **on a detached HEAD**, then
    force-points the `<version>` tag at *that* commit and pushes **only the tag**.
    **`main` is never pushed** — it keeps its committed binary and stays
-   path-based; the url form lives solely on the tag.
+   path-based; the url form lives solely on the tag. (The tag is force-pushed
+   with `GITHUB_TOKEN`, which by GitHub's design doesn't start another workflow
+   run, so a tag-push release can't loop.)
 
 Because the checksum and the attached asset are computed from the **same zip in
 the same run**, they always match — there is no build-reproducibility concern,

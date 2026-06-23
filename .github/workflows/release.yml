@@ -4,12 +4,15 @@ name: Release binary
 # and tag a commit whose Package.swift references that asset by `url:` +
 # `checksum:` (binary lives in the release, not the repo).
 #
-# WHY workflow_dispatch (and NOT a tag/push trigger): the checksum baked into
-# Package.swift is derived from the very release asset this run produces. A tag
-# trigger would create a chicken-and-egg — the tag's Package.swift would have to
-# already contain a checksum for a release that doesn't exist yet. By dispatching
-# with a version, we build, hash, rewrite, tag and release in one pass, so the
-# committed checksum always matches the attached zip.
+# TRIGGERS: pushing a release tag (e.g. `18.1.0`) is the primary path; manual
+# workflow_dispatch (with a `version` input) is the fallback for re-cutting a tag
+# that already exists. Either way the run builds the xcframework, hashes it,
+# rewrites Package.swift to url+checksum, and FORCE-MOVES the tag onto that
+# rewritten commit (see below) — so the checksum in the tagged Package.swift
+# always matches the attached zip, and there is no chicken-and-egg (a freshly cut
+# tag need not carry a pre-computed checksum). The tag force-push uses
+# GITHUB_TOKEN, which by GitHub's design does NOT start another workflow run, so
+# the push trigger cannot loop.
 #
 # WHY main is never pushed: `main` is intentionally kept PATH-BASED (it links the
 # committed Frameworks/Stockfish.xcframework, so a plain local `swift build`
@@ -21,6 +24,12 @@ name: Release binary
 # the rewriter always starts from a path-based binaryTarget.
 
 on:
+  # Primary: cutting + pushing a release tag runs this workflow.
+  push:
+    tags:
+      - '*.*.*'
+  # Fallback: manual dispatch for re-cutting a version whose tag already exists
+  # (the push trigger can't re-process an existing tag).
   workflow_dispatch:
     inputs:
       version:
@@ -47,7 +56,7 @@ jobs:
       # leaving a half-published state.
       - name: Validate version and check for collisions
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
@@ -61,11 +70,16 @@ jobs:
             echo "::error::version '${VERSION}' is not a valid git tag name"
             exit 1
           fi
-          # Tag must not already exist locally or on the remote.
-          if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null \
-            || git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
-            echo "::error::tag '${VERSION}' already exists — pick a new version or delete the tag/release first"
-            exit 1
+          # On manual dispatch the workflow CREATES the tag, so it must not exist
+          # yet. On a tag push the tag IS the trigger (exists by definition) and
+          # the workflow force-moves it onto the rewritten commit — so skip this
+          # check there.
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            if git rev-parse -q --verify "refs/tags/${VERSION}" >/dev/null \
+              || git ls-remote --exit-code --tags origin "refs/tags/${VERSION}" >/dev/null 2>&1; then
+              echo "::error::tag '${VERSION}' already exists — pick a new version, or delete the tag/release and re-dispatch"
+              exit 1
+            fi
           fi
           # Release must not already exist.
           if gh release view "${VERSION}" >/dev/null 2>&1; then
@@ -114,7 +128,7 @@ jobs:
       - name: Create release and upload asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           set -euo pipefail
           gh release create "${VERSION}" Stockfish.xcframework.zip \
@@ -137,7 +151,7 @@ jobs:
       # commented-out example block.
       - name: Rewrite Package.swift to url + checksum
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
           REPO: ${{ github.repository }}
           CHECKSUM: ${{ steps.checksum.outputs.checksum }}
         run: |
@@ -165,7 +179,7 @@ jobs:
       # we force-update it to point at the rewritten commit and push just the tag.
       - name: Commit rewritten manifest on a detached tag commit
         env:
-          VERSION: ${{ github.event.inputs.version }}
+          VERSION: ${{ github.event.inputs.version || github.ref_name }}
         run: |
           set -euo pipefail
           git config user.name 'github-actions[bot]'
