@@ -115,6 +115,15 @@ let package = Package(
             dependencies: ["CStockfish"],
             path: "Sources/SwiftStockfish"
         ),
+        // The test suite. Suites 1 & 2 are pure-logic / offline filesystem
+        // tests that run on a plain `swift test` (they NEVER touch the
+        // network). Suite 3 is a real-engine UCI integration suite, gated
+        // behind the SWIFTSTOCKFISH_INTEGRATION env var so it stays out of the
+        // default run (it needs a ~107 MB net download + a live engine).
+        .testTarget(
+            name: "SwiftStockfishTests",
+            dependencies: ["SwiftStockfish"]
+        ),
     ],
     cxxLanguageStandard: .gnucxx20
 )
