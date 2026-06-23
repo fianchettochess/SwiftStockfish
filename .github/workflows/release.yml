@@ -166,13 +166,16 @@ jobs:
       # -f forces removal even though the Build step just rebuilt the xcframework
       # over the committed one (its bytes differ, so `git rm` without -f refuses
       # to delete "locally modified" files). --ignore-unmatch keeps this a no-op
-      # on a re-run or if the path is already untracked.
-      - name: Drop committed binary; ignore future binaries
+      # on a re-run or if the path is already untracked. The release ZIP must
+      # ALSO be removed + ignored — otherwise the `git add -A` below sweeps the
+      # ~2 MB asset into the tagged commit, putting the binary right back in git.
+      - name: Drop committed binary + release zip; ignore future ones
         run: |
           git rm -rf --ignore-unmatch Frameworks/Stockfish.xcframework
-          if ! grep -qxF 'Frameworks/*.xcframework' .gitignore; then
-            printf 'Frameworks/*.xcframework\n' >> .gitignore
-          fi
+          rm -f Stockfish.xcframework.zip
+          for pat in 'Frameworks/*.xcframework' 'Stockfish.xcframework.zip'; do
+            grep -qxF "$pat" .gitignore || printf '%s\n' "$pat" >> .gitignore
+          done
 
       # Commit the url-rewritten / binary-removed tree on a DETACHED HEAD and move
       # the release tag onto THAT commit. `main` is never pushed, so it stays
@@ -187,7 +190,12 @@ jobs:
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git checkout --detach
-          git add -A
+          # Stage ONLY the intended changes — the rewritten manifest and the
+          # updated ignore rules — on top of the already-staged binary removal
+          # (`git rm` above). Using an explicit pathspec instead of `git add -A`
+          # guarantees no build artifact (the release zip, intermediate objects)
+          # is swept into the tagged commit.
+          git add Package.swift .gitignore
           git commit -m "Release ${VERSION}: binary xcframework as a release asset"
           # Point the release tag at this detached commit (url-based, binary-less)
           # and push only the tag — never main.
