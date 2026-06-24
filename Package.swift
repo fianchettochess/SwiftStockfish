@@ -50,6 +50,24 @@
 
 import PackageDescription
 
+// ENGINE SOURCING OVERRIDE — Apple hosts link the prebuilt
+// `Stockfish.xcframework`; non-Apple hosts compile Stockfish from source.
+// SwiftPM evaluates THIS manifest on the BUILD HOST, so `#if os(macOS)` reflects
+// the host, not the build target. That is correct for native builds, but an
+// Apple→Android/Linux CROSS-COMPILE (`swift build --swift-sdk <id>`) still runs
+// the manifest on the Apple host and would wrongly pick the xcframework arm.
+// Setting `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` forces the from-source arm
+// regardless of host — the Android (Skip) build sets it to compile the engine
+// for the device. `useBinaryEngine` is the single switch every conditional below
+// keys on (replacing the bare host-only `#if os()` gates).
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+let hostIsApple = true
+#else
+let hostIsApple = false
+#endif
+let useBinaryEngine = hostIsApple
+    && Context.environment["SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE"] != "1"
+
 // CONDITIONAL ENGINE TARGETS — the manifest's `#if os(...)` evaluates against
 // the BUILD HOST, which is exactly what we want for native builds: a Mac host
 // links the prebuilt xcframework; a Linux/Windows host compiles Stockfish from
@@ -58,11 +76,12 @@ import PackageDescription
 // `dependencies: ["CStockfish"]` are identical on every platform — the `#if`
 // is confined to the engine target body.
 //
-// NOTE: cross-compiling Apple→Linux picks the Apple arm here (host is macOS ⇒
-// `#if os(macOS)` is true ⇒ binaryTarget). Non-Apple builds must therefore be
-// NATIVE (a Linux runner, or a Swift SDK whose `swift build` runs the manifest
-// under the target triple). This is a known SwiftPM limitation, not a bug here.
-#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+// NOTE: cross-compiling Apple→non-Apple evaluates this on the macOS host, so we
+// gate on the runtime `useBinaryEngine` flag (host AND no FORCE_SOURCE override)
+// rather than a bare `#if os()` — otherwise a `--swift-sdk` Android build would
+// pick the xcframework arm. Native non-Apple builds have hostIsApple == false.
+let engineTargets: [Target]
+if useBinaryEngine {
 // APPLE — link the prebuilt, multi-arch Stockfish.xcframework via a
 // binaryTarget; the `CStockfish` bridge compiles ONLY itself (the engine's
 // `.cpp` under `stockfish/` stay on disk for GPL source-availability but are
@@ -76,7 +95,7 @@ import PackageDescription
 //       url: "https://.../releases/download/<version>/Stockfish.xcframework.zip",
 //       checksum: "<sha256 from `swift package compute-checksum`>"
 //   )
-let engineTargets: [Target] = [
+engineTargets = [
     .binaryTarget(
         name: "StockfishEngine",
         path: "Frameworks/Stockfish.xcframework"
@@ -105,14 +124,14 @@ let engineTargets: [Target] = [
         ]
     ),
 ]
-#else
-// NON-APPLE (Linux / Windows / Android / …) — compile the engine FROM SOURCE
-// plus the bridge in ONE target. No `sources:` is set, so SwiftPM compiles
-// every `.cpp` it finds under the target directory: the bridge
+} else {
+// NON-APPLE (Linux / Windows / Android / …) OR a forced source build — compile
+// the engine FROM SOURCE plus the bridge in ONE target. No `sources:` is set, so
+// SwiftPM compiles every `.cpp` it finds under the target directory: the bridge
 // (`StockfishBridge.cpp`) AND all 23 engine translation units under
 // `stockfish/` (the exact set Tools/build-xcframework.sh enumerates). There is
 // no binaryTarget on these platforms.
-let engineTargets: [Target] = [
+engineTargets = [
     .target(
         name: "CStockfish",
         path: "Sources/CStockfish",
@@ -131,26 +150,28 @@ let engineTargets: [Target] = [
         ]
     ),
 ]
-#endif
+}
 
 // CRYPTO BACKEND — the NNUE loader verifies downloaded nets with SHA-256.
 // Apple platforms use the OS-provided CryptoKit (no dependency). NON-APPLE
 // hosts have no CryptoKit, so they pull swift-crypto's `Crypto` module, which
 // exposes the identical `SHA256` API. The dependency + the target link are
-// declared ONLY in the non-Apple arm (this manifest `#if` evaluates against the
-// build host), so the Apple build never resolves, downloads, or links
-// swift-crypto — the Apple dependency graph is unchanged.
-#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
-let cryptoPackageDeps: [Package.Dependency] = []
-let cryptoTargetDeps: [Target.Dependency] = []
-#else
-let cryptoPackageDeps: [Package.Dependency] = [
+// gated on `useBinaryEngine` (an Apple host with no source-build override), so
+// the Apple build never resolves, downloads, or links swift-crypto — the Apple
+// dependency graph is unchanged. A forced source build pulls swift-crypto too.
+let cryptoPackageDeps: [Package.Dependency]
+let cryptoTargetDeps: [Target.Dependency]
+if useBinaryEngine {
+cryptoPackageDeps = []
+cryptoTargetDeps = []
+} else {
+cryptoPackageDeps = [
     .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0"..<"5.0.0"),
 ]
-let cryptoTargetDeps: [Target.Dependency] = [
+cryptoTargetDeps = [
     .product(name: "Crypto", package: "swift-crypto"),
 ]
-#endif
+}
 
 let package = Package(
     name: "SwiftStockfish",

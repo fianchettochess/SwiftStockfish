@@ -18,8 +18,10 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
 - Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
-  Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 + arm64). WASM is not yet
-  supported. Full matrix + per-platform SIMD: [Platform support](#platform-support).
+  Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 + arm64) and **Android** (API 28+;
+  arm64 · x86_64 · armv7). WASM is not yet supported. Full matrix + per-platform
+  SIMD: [Platform support](#platform-support); cross-compiling the Android arm
+  from macOS: [Cross-compiling for Android](#cross-compiling-for-android).
 - **Conditional engine delivery (selected by the build host in `Package.swift`).**
   On **Apple** the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
   (10 slices — ios/macos/tvos/watchos/xros/maccatalyst, device + simulator). On
@@ -118,7 +120,9 @@ exactly the 18.1 nets with no manual cleanup.
 ## How the engine is built and linked
 
 How the engine is delivered depends on the build host — `Package.swift` selects
-the targets with `#if os(...)`:
+the targets with a host check (`#if os(...)`), which a cross-compile can override
+with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
+[Cross-compiling for Android](#cross-compiling-for-android)):
 
 - **Apple — prebuilt `Stockfish.xcframework`** (a `binaryTarget`). The
   xcframework carries **10 slices** — ios/macos/tvos/watchos/xros/maccatalyst,
@@ -128,16 +132,17 @@ the targets with `#if os(...)`:
   prebuilt binary carries no compile flags, so SwiftPM's "can't pass C++ flags
   per-architecture" limitation never applies — every Apple arch links with full
   SIMD.
-- **Non-Apple (Linux) — compiled from source.** The `#else` arm compiles the
-  bundled Stockfish source + the bridge in the `CStockfish` target (no
+- **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
+  the bundled Stockfish source + the bridge in the `CStockfish` target (no
   `sources:`, so SwiftPM builds every `.cpp`). SIMD follows the compiler's own
   feature predefines: full **NEON** on arm64; on x86_64 the publishable default
   is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
   [Platform support](#platform-support)). No `.unsafeFlags`, so the source arm is
-  version-pinnable too.
+  version-pinnable too. The bridge is plain C++ (`StockfishBridge.cpp`), so it
+  compiles under non-Apple clang with no Objective-C++ runtime.
 
 - **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target compiles
-  only the Obj-C++ bridge and carries **no `.unsafeFlags`**. The SIMD/NNUE
+  only the C++ bridge and carries **no `.unsafeFlags`**. The SIMD/NNUE
   config that previously needed a force-included prefix header now lives in the
   binary; the bridge gets it via a plain `#include "StockfishConfig.h"` (a
   source include, not a compiler flag). SwiftPM forbids `.unsafeFlags` only in
@@ -161,6 +166,9 @@ the targets with `#if os(...)`:
 | Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON · x86_64 AVX2 |
 | Linux arm64 | — | source build | NEON+DOTPROD (baseline, full speed) |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
+| Android arm64 | API 28 | source build | NEON+DOTPROD (baseline, full speed) |
+| Android x86_64 | API 28 | source build | SSE2/generic default (emulator) |
+| Android armv7 | API 28 | source build | generic |
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
 
 Apple **simulator** x86_64 slices carry AVX2; device slices are arm64/NEON. **CI**
@@ -179,6 +187,43 @@ WASI-compatible, but today's Swift WASM SDK lacks a working multi-threading
 runtime (and defaults to `-fno-exceptions`, while Stockfish uses exceptions).
 Revisit once WASI shared-everything-threads has a shipping runtime — the
 remaining work is the toolchain, not the bridge.
+
+### Cross-compiling for Android
+
+Android uses the **same `#else` source arm as Linux**, compiled with the
+[Swift Android SDK](https://github.com/swiftlang/swift-android) (install it with
+`skip android sdk install` or swiftly). Verified building
+`aarch64-unknown-linux-android28` against `swift-6.3.2-RELEASE_android` on a macOS
+host — the engine, the bridge, and the Swift API + NNUE loader all compile and
+archive. Three things are specific to cross-compiling from a macOS host, all
+handled by [`Tools/android/build-android.sh`](Tools/android/build-android.sh):
+
+1. **Force the source arm.** SwiftPM evaluates `Package.swift` on the *build
+   host*, so on macOS `#if os(macOS)` is true and the manifest would pick the
+   Apple xcframework arm even for an Android build. Set
+   **`SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1`** to select the from-source arm (and
+   pull in swift-crypto for the loader's SHA-256) regardless of host.
+2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible —
+   a 6.3.2 Android SDK must be driven by a 6.3.2 *host* compiler, or the build
+   fails with `module compiled with Swift 6.3.2 cannot be imported by the Swift
+   6.2.4 compiler`. Install the matching toolchain and invoke it explicitly
+   (`swiftly run swift build …`); the system `/usr/bin/swift` is Xcode's and may
+   not match.
+3. **Archive with the NDK's `llvm-ar`.** Apple's cctools `ar` can't read the
+   `@responsefile` SwiftPM passes when archiving, so the default librarian fails
+   with `ar: @…/Objects.LinkFileList: No such file or directory`. Point the
+   librarian at the NDK's `llvm-ar` with a `--toolset`.
+
+```bash
+# Defaults to aarch64 / API 28; override with ANDROID_ARCH / ANDROID_API_LEVEL.
+Tools/android/build-android.sh                       # debug
+Tools/android/build-android.sh -c release            # release
+```
+
+The minimum Android API level is **28** (the lowest the Swift Android SDK
+provides). arm64 builds at full NEON speed; the x86_64 emulator slice uses the
+SSE2 baseline. The public C API and Swift surface are byte-for-byte identical to
+every other platform.
 
 ## Releasing
 
@@ -268,7 +313,8 @@ SwiftStockfish/
     CStockfish/                  # bridge-only target (links the engine binary)
       include/StockfishBridge.h  # PUBLIC umbrella header (publicHeadersPath)
       StockfishConfig.h          # config header, #included by the bridge (no force-include)
-      StockfishBridge.mm         # the bridge: drives Stockfish's UCI loop over pipes
+      StockfishBridge.cpp        # the bridge: drives Stockfish's UCI loop over an in-process queue
+      StockfishIO.h              # in-memory command queue + output callback (portable bridge I/O)
       stockfish/                 # the copied Stockfish src/ tree: HEADERS feed the
                                  #   bridge; .cpp kept for GPL but EXCLUDED from build
     SwiftStockfish/              # Swift API
@@ -307,7 +353,7 @@ distributable GPL component.
   first line, so the target carries no `.unsafeFlags` and is version-publishable.
 - **The bridge's `#include "src/…"` paths were changed to bare includes** (e.g.
   `#include "bitboard.h"`) to match the new `stockfish/` layout, resolved via the
-  `.headerSearchPath("stockfish")`. Noted inline in `StockfishBridge.mm`.
+  `.headerSearchPath("stockfish")`. Noted inline in `StockfishBridge.cpp`.
 - **No `COPYING` file was copied** — Fianchetto's Stockfish `src/` did not
   contain one. `LICENSE` is the canonical GPL-3.0 text with a header noting the
   package embeds Stockfish.
