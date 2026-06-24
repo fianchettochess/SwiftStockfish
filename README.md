@@ -174,7 +174,11 @@ builds everywhere, version-pinnable, but slower). For full x86_64 speed a consum
 opts in by passing `-mssse3 -msse4.1 -mpopcnt` (and `-mavx2 -mbmi2 -DSF_ENABLE_AVX2`
 for AVX2) in their own build settings, accepting **revision-pinning** on that
 platform. **arm64** — Linux and Apple — pays nothing: NEON is the architecture
-baseline. **WASM** is deferred pending a WASI shared-memory threading runtime.
+baseline. **WASM** is deferred: the source arm and the in-memory-queue bridge are already
+WASI-compatible, but today's Swift WASM SDK lacks a working multi-threading
+runtime (and defaults to `-fno-exceptions`, while Stockfish uses exceptions).
+Revisit once WASI shared-everything-threads has a shipping runtime — the
+remaining work is the toolchain, not the bridge.
 
 ## Releasing
 
