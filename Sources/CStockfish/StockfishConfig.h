@@ -9,22 +9,42 @@
     #define USE_NEON 8
     #define USE_NEON_DOTPROD 1
 #elif defined(__x86_64__)
-    // SSE baseline — available on every x86_64 target's default codegen, so
-    // this requires no `-m…` flag and stays `.unsafeFlags`-free (remote
-    // version-pinnable).
+    // SSE2 is the x86-64 ABI baseline: `__SSE2__` is ALWAYS a compiler
+    // predefine on this arch, so its intrinsics are always legal codegen and
+    // this define needs no `-m…` flag. It therefore stays `.unsafeFlags`-free
+    // (remote version-pinnable).
     #define USE_SSE2 1
-    #define USE_SSSE3 1
-    #define USE_SSE41 1
-    #define USE_POPCNT 1
-    // AVX2/PEXT need the `-mavx2 -mbmi2` codegen flags for their intrinsics, so
-    // they are gated behind SF_ENABLE_AVX2 and OFF by default. SOURCE builds
-    // (the non-Apple `#else` manifest arm) therefore default to the SSE
-    // baseline and carry no `.unsafeFlags`. The PREBUILT Apple xcframework
-    // KEEPS full AVX2: Tools/build-xcframework.sh passes both `-mavx2 -mbmi2`
-    // AND `-DSF_ENABLE_AVX2` for the x86_64 slices. A power user who controls
-    // their own x86_64 source build can opt back in by defining SF_ENABLE_AVX2
-    // and passing `-mavx2 -mbmi2` via their own CXXFLAGS.
-    #if defined(SF_ENABLE_AVX2)
+    // The higher SSE tiers each need their own `-m…` codegen flag for their
+    // intrinsics to compile (`-mssse3`, `-msse4.1`, `-mpopcnt`). The
+    // publishable SOURCE build (the non-Apple `#else` manifest arm) passes NO
+    // such flags — adding `.unsafeFlags` to the manifest would break remote
+    // version-pinning — so we must NOT enable these tiers unconditionally.
+    // Instead, gate each on the compiler's OWN feature predefine: the tier
+    // lights up only when the consumer actually passed the matching flag, in
+    // which case the intrinsics are guaranteed legal.
+    //
+    // TRADE-OFF: a no-flag x86_64 source build gets USE_SSE2 only, so
+    // Stockfish's NNUE falls back to its generic (scalar SSE2) path —
+    // correct + publishable, but slow. Faster x86_64 codegen is opt-in:
+    //   `-mssse3 -msse4.1 -mpopcnt`      -> the SSSE3 NNUE path
+    //   `-mavx2 -mbmi2 -DSF_ENABLE_AVX2` -> full AVX2 (see below)
+    // The PREBUILT Apple xcframework is UNAFFECTED: Tools/build-xcframework.sh
+    // passes `-mavx2 -mbmi2 -DSF_ENABLE_AVX2` for every x86_64 slice, so
+    // `__AVX2__`/`__BMI2__` (and the lower SSE predefines they imply) plus
+    // SF_ENABLE_AVX2 are all set there -> full AVX2 is retained.
+    #if defined(__SSSE3__)
+        #define USE_SSSE3 1
+    #endif
+    #if defined(__SSE4_1__)
+        #define USE_SSE41 1
+    #endif
+    #if defined(__POPCNT__)
+        #define USE_POPCNT 1
+    #endif
+    // AVX2/PEXT need `-mavx2 -mbmi2` codegen flags AND the explicit
+    // SF_ENABLE_AVX2 opt-in. OFF by default in source builds; the Apple
+    // xcframework opts in via the build script (above).
+    #if defined(SF_ENABLE_AVX2) && defined(__AVX2__) && defined(__BMI2__)
         #define USE_AVX2 1
         #define USE_PEXT 1
     #endif

@@ -1,0 +1,51 @@
+name: CI
+
+# Build + test on the two arms of the conditional manifest (see Package.swift):
+#
+#   * linux-x86_64 — the SOURCE arm. Package.swift's `#else` branch compiles
+#     CStockfish (the bundled engine sources) from scratch with NO `-m…` codegen
+#     flags, because adding `.unsafeFlags` to the manifest would break remote
+#     version-pinning. StockfishConfig.h therefore enables only USE_SSE2 on a
+#     bare x86_64 build (the higher SSE/AVX tiers are gated on the compiler's own
+#     `__SSSE3__`/`__SSE4_1__`/`__POPCNT__`/`__AVX2__` predefines, which a no-flag
+#     build does not set). This job is the regression guard for that gate: a
+#     no-flag x86_64 source build must COMPILE (generic SSE2 NNUE path).
+#
+#   * macos — the Apple arm. Package.swift's `#if os(macOS)…` branch links the
+#     prebuilt Stockfish.xcframework via a path-based binaryTarget and compiles
+#     only the small CStockfish bridge. This job guards the Apple side of the
+#     conditional manifest.
+#
+# The gated engine-integration suite (which needs the NNUE network files, not in
+# the repo) is intentionally NOT run here — these jobs build + run only the
+# always-available unit tests. arm64-Linux is verified locally via Docker
+# (linux/arm64 emulation); no hosted arm64-Linux runner is wired here.
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-x86_64:
+    name: Linux x86_64 (source build)
+    runs-on: ubuntu-latest
+    container: swift:latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift build
+        run: swift build
+      - name: swift test
+        run: swift test
+
+  macos:
+    name: macOS (Apple binaryTarget)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift build
+        run: swift build
