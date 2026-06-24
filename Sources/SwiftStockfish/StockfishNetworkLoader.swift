@@ -13,7 +13,24 @@
 //
 
 import Foundation
+// On Linux, URLSession lives in the FoundationNetworking module (split out of
+// swift-corelibs-foundation); on Apple it is part of Foundation. The plain
+// `import Foundation` above is enough on Apple — this only adds the networking
+// half where it is a separate module.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+// SHA-256 for network verification. Apple ships CryptoKit; non-Apple platforms
+// use swift-crypto's `Crypto`, which exposes the identical `SHA256` API
+// (`SHA256()` / `update(data:)` / `finalize()`), so the call sites below are
+// source-identical on every platform. swift-crypto is declared as a
+// non-Apple-only dependency in Package.swift, so the Apple build never resolves
+// or links it.
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 
 /// Ensures a directory holds exactly the NNUE networks the engine requires.
 ///
