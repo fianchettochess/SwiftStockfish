@@ -1,0 +1,62 @@
+site_name: SwiftStockfish
+site_description: A Swift Package Manager wrapper around the Stockfish chess engine — a clean StockfishEngine UCI API plus a version-aware NNUE network loader.
+site_author: Jared Brewer
+copyright: "SwiftStockfish — GPL-3.0, because it ships and links Stockfish."
+
+docs_dir: docs
+
+theme:
+  name: material
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: green
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: green
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - content.code.copy
+    - content.code.annotate
+    - toc.follow
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.details
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Getting Started: getting-started.md
+  - Concepts:
+      - Setup & NNUE loader: concepts/setup.md
+      - Driving the engine: concepts/driving-the-engine.md
+      - Platform support: concepts/platform-support.md
+  - Usage Examples: examples.md

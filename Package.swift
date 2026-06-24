@@ -173,6 +173,14 @@ cryptoTargetDeps = [
 ]
 }
 
+// DOCC GENERATION — the swift-docc-plugin is a command plugin used only by
+// `swift package generate-documentation`. It adds nothing to the library's own
+// dependency graph or its compiled output and is unconditional (it does not
+// touch the engine-sourcing or crypto-backend selection above).
+let doccPluginDeps: [Package.Dependency] = [
+    .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.0.0"),
+]
+
 let package = Package(
     name: "SwiftStockfish",
     platforms: [
@@ -208,8 +216,8 @@ let package = Package(
             targets: ["CStockfish"]
         ),
     ],
-    // Empty on Apple; swift-crypto on non-Apple hosts (see cryptoPackageDeps).
-    dependencies: cryptoPackageDeps,
+    // swift-crypto on non-Apple hosts (see cryptoPackageDeps) + the DocC plugin.
+    dependencies: cryptoPackageDeps + doccPluginDeps,
     targets: engineTargets + [
         // The Swift-facing API: the engine wrapper + the version-aware NNUE
         // network loader.
