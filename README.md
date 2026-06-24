@@ -1,5 +1,10 @@
 # SwiftStockfish
 
+[![Swift Package Index — Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjaredbrewer%2FSwiftStockfish%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/jaredbrewer/SwiftStockfish)
+[![Swift Package Index — Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjaredbrewer%2FSwiftStockfish%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/jaredbrewer/SwiftStockfish)
+[![Release](https://img.shields.io/github/v/release/jaredbrewer/SwiftStockfish?sort=semver&label=release&color=blue)](https://github.com/jaredbrewer/SwiftStockfish/releases)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
+
 A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
 chess engine. The engine ships as a **prebuilt, multi-arch `binaryTarget`**
 (`Stockfish.xcframework`); a small Objective-C++ bridge in the `CStockfish`
@@ -11,7 +16,7 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 [Licensing](#licensing).
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
-- Platforms: **macOS 15+, iOS 18+**.
+- Platforms: **macOS 10.15+, iOS 13+**.
 - **binaryTarget-based, multi-arch:** the engine xcframework carries
   ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 slices. The
   bridge target carries no `.unsafeFlags`, so the package is version-publishable
@@ -245,9 +250,12 @@ distributable GPL component.
 
 ## Deviations from the original spec
 
-- **swift-tools-version is `6.0`, not `5.9`.** `.macOS(.v15)` / `.iOS(.v18)`
-  were only added to `PackageDescription` in 6.0; with 5.9 the manifest fails to
-  compile. The spec explicitly allowed "5.9 or 6.0".
+- **swift-tools-version is `6.0`.** Originally chosen because `.macOS(.v15)` /
+  `.iOS(.v18)` require 6.0; the deployment floor was since **lowered to iOS 13 /
+  macOS 10.15** (`.iOS(.v13)` / `.macOS(.v10_15)`, which older tools versions
+  support too — see the manifest header on the Swift-concurrency back-deployment
+  floor), so 6.0 is no longer required by the platform declarations and is simply
+  retained. The spec allowed "5.9 or 6.0".
 - **An extra `.headerSearchPath(".")`** is on the `CStockfish` cxx settings
   (alongside the engine-dir `.headerSearchPath`) so the bridge's
   `#include "StockfishConfig.h"` resolves from the target root. The force-include
