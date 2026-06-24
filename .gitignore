@@ -3,3 +3,5 @@
 .DS_Store
 .swiftpm/
 Package.resolved
+Frameworks/*.xcframework
+Stockfish.xcframework.zip
