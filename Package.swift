@@ -50,6 +50,108 @@
 
 import PackageDescription
 
+// CONDITIONAL ENGINE TARGETS — the manifest's `#if os(...)` evaluates against
+// the BUILD HOST, which is exactly what we want for native builds: a Mac host
+// links the prebuilt xcframework; a Linux/Windows host compiles Stockfish from
+// source. The target NAME stays `CStockfish` in BOTH arms, so the product
+// (`.library(name: "CStockfish", …)`) and the `SwiftStockfish` target's
+// `dependencies: ["CStockfish"]` are identical on every platform — the `#if`
+// is confined to the engine target body.
+//
+// NOTE: cross-compiling Apple→Linux picks the Apple arm here (host is macOS ⇒
+// `#if os(macOS)` is true ⇒ binaryTarget). Non-Apple builds must therefore be
+// NATIVE (a Linux runner, or a Swift SDK whose `swift build` runs the manifest
+// under the target triple). This is a known SwiftPM limitation, not a bug here.
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+// APPLE — link the prebuilt, multi-arch Stockfish.xcframework via a
+// binaryTarget; the `CStockfish` bridge compiles ONLY itself (the engine's
+// `.cpp` under `stockfish/` stay on disk for GPL source-availability but are
+// excluded — the binary already contains them).
+//
+// PATH MODE on `main` (links the committed Frameworks/Stockfish.xcframework, so
+// `swift build` just works). At release time CI rewrites the binaryTarget block
+// — and only that block — to the url+checksum form:
+//   .binaryTarget(
+//       name: "StockfishEngine",
+//       url: "https://.../releases/download/<version>/Stockfish.xcframework.zip",
+//       checksum: "<sha256 from `swift package compute-checksum`>"
+//   )
+let engineTargets: [Target] = [
+    .binaryTarget(
+        name: "StockfishEngine",
+        path: "Frameworks/Stockfish.xcframework"
+    ),
+    .target(
+        name: "CStockfish",
+        dependencies: ["StockfishEngine"],
+        path: "Sources/CStockfish",
+        // Restrict the compiled sources to the bridge alone. This keeps every
+        // `stockfish/**/*.cpp` out of the build while leaving the engine's
+        // HEADERS in place on the header search path below, and the `.cpp`
+        // on disk for GPL source availability.
+        sources: ["StockfishBridge.cpp"],
+        // The public umbrella header (`include/StockfishBridge.h`) is the
+        // Swift module's C interface.
+        publicHeadersPath: "include",
+        cxxSettings: [
+            // The target root, so the bridge's `#include "StockfishConfig.h"`
+            // (a plain source include, not a force-include flag) resolves.
+            // Paths are relative to the target directory.
+            .headerSearchPath("."),
+            // Let the bridge resolve its `#include "bitboard.h"`-style
+            // includes against the engine's kept headers.
+            .headerSearchPath("stockfish"),
+            .define("NDEBUG", .when(configuration: .release)),
+        ]
+    ),
+]
+#else
+// NON-APPLE (Linux / Windows / Android / …) — compile the engine FROM SOURCE
+// plus the bridge in ONE target. No `sources:` is set, so SwiftPM compiles
+// every `.cpp` it finds under the target directory: the bridge
+// (`StockfishBridge.cpp`) AND all 23 engine translation units under
+// `stockfish/` (the exact set Tools/build-xcframework.sh enumerates). There is
+// no binaryTarget on these platforms.
+let engineTargets: [Target] = [
+    .target(
+        name: "CStockfish",
+        path: "Sources/CStockfish",
+        // The public umbrella header (`include/StockfishBridge.h`) is the
+        // Swift module's C interface.
+        publicHeadersPath: "include",
+        cxxSettings: [
+            .headerSearchPath("."),
+            .headerSearchPath("stockfish"),
+            .define("NDEBUG", .when(configuration: .release)),
+            // Make the engine's own `NativeThread` use pthread (matching its
+            // thread_win32_osx.h:30 condition) on Linux/Android; everywhere
+            // else it falls back to std::thread. Optional — std::thread also
+            // works — but it matches the upstream default on those hosts.
+            .define("USE_PTHREADS", .when(platforms: [.linux, .android])),
+        ]
+    ),
+]
+#endif
+
+// CRYPTO BACKEND — the NNUE loader verifies downloaded nets with SHA-256.
+// Apple platforms use the OS-provided CryptoKit (no dependency). NON-APPLE
+// hosts have no CryptoKit, so they pull swift-crypto's `Crypto` module, which
+// exposes the identical `SHA256` API. The dependency + the target link are
+// declared ONLY in the non-Apple arm (this manifest `#if` evaluates against the
+// build host), so the Apple build never resolves, downloads, or links
+// swift-crypto — the Apple dependency graph is unchanged.
+#if os(macOS) || os(iOS) || os(tvOS) || os(watchOS) || os(visionOS)
+let cryptoPackageDeps: [Package.Dependency] = []
+let cryptoTargetDeps: [Target.Dependency] = []
+#else
+let cryptoPackageDeps: [Package.Dependency] = [
+    .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0"..<"5.0.0"),
+]
+let cryptoTargetDeps: [Target.Dependency] = [
+    .product(name: "Crypto", package: "swift-crypto"),
+]
+#endif
+
 let package = Package(
     name: "SwiftStockfish",
     platforms: [
@@ -85,51 +187,16 @@ let package = Package(
             targets: ["CStockfish"]
         ),
     ],
-    targets: [
-        // The prebuilt Stockfish engine, multi-arch. PATH MODE on `main` (links
-        // the committed Frameworks/Stockfish.xcframework, so `swift build` just
-        // works). At release time the CI rewrites THIS block — and only this
-        // block, never the commented example — to the url+checksum form:
-        //   .binaryTarget(
-        //       name: "StockfishEngine",
-        //       url: "https://.../releases/download/<version>/Stockfish.xcframework.zip",
-        //       checksum: "<sha256 from `swift package compute-checksum`>"
-        //   )
-        .binaryTarget(
-            name: "StockfishEngine",
-            path: "Frameworks/Stockfish.xcframework"
-        ),
-        // The Obj-C++ bridge — links the engine binary for symbols and compiles
-        // ONLY itself. (The engine's `.cpp` under `stockfish/` are kept for GPL
-        // source-availability but not built; the binary already contains them.)
-        .target(
-            name: "CStockfish",
-            dependencies: ["StockfishEngine"],
-            path: "Sources/CStockfish",
-            // Restrict the compiled sources to the bridge alone. This keeps every
-            // `stockfish/**/*.cpp` out of the build while leaving the engine's
-            // HEADERS in place on the header search path below, and the `.cpp`
-            // on disk for GPL source availability.
-            sources: ["StockfishBridge.mm"],
-            // The public umbrella header (`include/StockfishBridge.h`) is the
-            // Swift module's C interface.
-            publicHeadersPath: "include",
-            cxxSettings: [
-                // The target root, so the bridge's `#include "StockfishConfig.h"`
-                // (now a plain source include, not a force-include flag)
-                // resolves. Paths are relative to the target directory.
-                .headerSearchPath("."),
-                // Let the bridge resolve its `#include "bitboard.h"`-style
-                // includes against the engine's kept headers.
-                .headerSearchPath("stockfish"),
-                .define("NDEBUG", .when(configuration: .release)),
-            ]
-        ),
+    // Empty on Apple; swift-crypto on non-Apple hosts (see cryptoPackageDeps).
+    dependencies: cryptoPackageDeps,
+    targets: engineTargets + [
         // The Swift-facing API: the engine wrapper + the version-aware NNUE
         // network loader.
         .target(
             name: "SwiftStockfish",
-            dependencies: ["CStockfish"],
+            // `cryptoTargetDeps` is empty on Apple (CryptoKit comes from the OS)
+            // and adds swift-crypto's `Crypto` product on non-Apple hosts.
+            dependencies: ["CStockfish"] + cryptoTargetDeps,
             path: "Sources/SwiftStockfish"
         ),
         // The test suite. Suites 1 & 2 are pure-logic / offline filesystem
@@ -139,7 +206,10 @@ let package = Package(
         // default run (it needs a ~107 MB net download + a live engine).
         .testTarget(
             name: "SwiftStockfishTests",
-            dependencies: ["SwiftStockfish"]
+            // `cryptoTargetDeps` is empty on Apple and links swift-crypto on
+            // non-Apple, where the loader test hashes a synthetic net with
+            // `SHA256` (CryptoKit has no Linux module).
+            dependencies: ["SwiftStockfish"] + cryptoTargetDeps
         ),
     ],
     cxxLanguageStandard: .gnucxx20

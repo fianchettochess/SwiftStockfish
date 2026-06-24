@@ -14,7 +14,13 @@
 
 import Testing
 import Foundation
+// SHA-256 for the synthetic-net hashing assertion: CryptoKit on Apple,
+// swift-crypto's `Crypto` (same `SHA256` API) on non-Apple. See Package.swift.
+#if canImport(CryptoKit)
 import CryptoKit
+#else
+import Crypto
+#endif
 @testable import SwiftStockfish
 
 @Suite("StockfishNetworkLoader (offline)")

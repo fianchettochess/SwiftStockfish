@@ -46,7 +46,14 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PKG="$(cd "$HERE/.." && pwd)"
 SRC="$PKG/Sources/CStockfish/stockfish"
-PREFIX="$PKG/Sources/CStockfish/StockfishConfig.h"
+# Directory holding StockfishConfig.h. It is force-included below via `-include`,
+# but the engine's types.h ALSO does a plain `#include "StockfishConfig.h"` (so
+# the publishable, flag-free SwiftPM source arm gets the same config). That
+# source include resolves against this -I path on the Apple build; without it
+# the new include would be "file not found". (The force-include + this source
+# include are idempotent — StockfishConfig.h has its own header guard.)
+CONFIG_DIR="$PKG/Sources/CStockfish"
+PREFIX="$CONFIG_DIR/StockfishConfig.h"
 OUT="$HERE/build"
 # Place Stockfish.xcframework in the package's Frameworks/ by default (the
 # binaryTarget path); an arg overrides the containing directory.
@@ -76,17 +83,20 @@ build_arch() {
   local sdkpath; sdkpath="$(xcrun --sdk "$sdk" --show-sdk-path)"
   # x86_64 needs AVX2 + BMI2 enabled so the intrinsics StockfishConfig.h's
   # USE_AVX2 / USE_PEXT defines rely on are available — mirrors the app's
-  # OTHER_CPLUSPLUSFLAGS[arch=x86_64] = (-mavx2, -mbmi2). arm64 NEON/DOTPROD
-  # is baseline on Apple clang, so it needs no extra arch flags. (left
-  # unquoted so it word-splits / vanishes when empty)
+  # OTHER_CPLUSPLUSFLAGS[arch=x86_64] = (-mavx2, -mbmi2). The `-DSF_ENABLE_AVX2`
+  # define UNLOCKS that USE_AVX2/USE_PEXT block in StockfishConfig.h (gated OFF
+  # by default so source builds stay SSE-baseline + .unsafeFlags-free); the
+  # PREBUILT Apple x86_64 slices keep full AVX2 because we pass it here. arm64
+  # NEON/DOTPROD is baseline on Apple clang, so it needs no extra arch flags.
+  # (left unquoted so it word-splits / vanishes when empty)
   local extra=""
-  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2"
+  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
   local objdir="$OUT/obj/$sdk-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
     local o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
     xcrun --sdk "$sdk" clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
-      -include "$PREFIX" -I "$SRC" \
+      -include "$PREFIX" -I "$SRC" -I "$CONFIG_DIR" \
       -arch "$arch" -isysroot "$sdkpath" "$minflag" $extra
   done
   local lib="$OUT/libStockfish-$sdk-$arch.a"
@@ -106,13 +116,13 @@ build_macabi() {
   local arch="$1"
   local sdkpath; sdkpath="$(xcrun --sdk macosx --show-sdk-path)"
   local extra=""
-  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2"
+  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
   local objdir="$OUT/obj/maccatalyst-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
     local o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
     xcrun --sdk macosx clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
-      -include "$PREFIX" -I "$SRC" \
+      -include "$PREFIX" -I "$SRC" -I "$CONFIG_DIR" \
       --target="$arch-apple-ios13.2-macabi" -isysroot "$sdkpath" $extra
   done
   local lib="$OUT/libStockfish-maccatalyst-$arch.a"
