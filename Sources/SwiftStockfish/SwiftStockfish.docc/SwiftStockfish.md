@@ -67,6 +67,8 @@ engine.send("go depth 20")
 
 - <doc:GettingStarted>
 - <doc:DrivingTheEngine>
+- <doc:NetworkSetup>
+- <doc:UsageExamples>
 - <doc:PlatformSupport>
 
 ### The engine
