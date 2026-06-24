@@ -11,10 +11,11 @@
 # Frameworks/Stockfish.xcframework — no dependency on the host app's tree.
 #
 # DEPLOYMENT FLOOR: the slices are compiled at iOS 13.0 / macOS 10.15
-# (Catalina) — matching Package.swift's platforms, which are pinned there by
-# Swift-concurrency back-deployment. The engine imposes no OS floor of its own,
-# so these are simply set to the package's minimum. Bump IOS_MIN / MAC_MIN here
-# in lockstep if Package.swift's platforms ever change.
+# (Catalina) / tvOS 13.0 / watchOS 6.0 / visionOS 1.0 / Mac Catalyst 13.2 —
+# matching Package.swift's platforms, which are pinned there by Swift-concurrency
+# back-deployment. The engine imposes no OS floor of its own, so these are simply
+# set to the package's minimum. Bump IOS_MIN / MAC_MIN / TVOS_MIN / WATCHOS_MIN /
+# VISIONOS_MIN here in lockstep if Package.swift's platforms ever change.
 #
 # LICENSING: Stockfish is licensed GPL-3. This script — together with the
 # Stockfish source it references (Sources/CStockfish/stockfish) and the
@@ -24,7 +25,11 @@
 # GPL boundary clean.
 #
 # Slices built: iphoneos (arm64), iphonesimulator (arm64,x86_64),
-#               macosx (arm64,x86_64).  Native macOS — no Mac Catalyst.
+#               macosx (arm64,x86_64), appletvos (arm64),
+#               appletvsimulator (arm64,x86_64), watchos (arm64; arm64_32
+#               omitted — Series 5+/watchOS 6), watchsimulator (arm64,x86_64),
+#               xros/visionOS (arm64), xrsimulator (arm64,x86_64), and Mac
+#               Catalyst (arm64,x86_64 via the -macabi triple; no sim slice).
 #
 # Flags mirror the original in-target build exactly:
 #   -std=gnu++20 -O3, the StockfishConfig.h PREFIX header (which sets
@@ -49,10 +54,14 @@ XCF_DIR="${1:-$PKG/Frameworks}"
 
 IOS_MIN=13.0
 MAC_MIN=10.15
+TVOS_MIN=13.0
+WATCHOS_MIN=6.0
+VISIONOS_MIN=1.0
+# Mac Catalyst uses the iOS-13.2 `-macabi` target triple (the earliest Catalyst).
 
 echo "Stockfish source : $SRC"
 echo "Output framework : $XCF_DIR/Stockfish.xcframework"
-echo "Minimums         : iOS $IOS_MIN / macOS $MAC_MIN"
+echo "Minimums         : iOS $IOS_MIN / macOS $MAC_MIN / tvOS $TVOS_MIN / watchOS $WATCHOS_MIN / visionOS $VISIONOS_MIN"
 rm -rf "$OUT"; mkdir -p "$OUT"
 mkdir -p "$XCF_DIR"
 
@@ -86,6 +95,32 @@ build_arch() {
   printf '%s' "$lib"
 }
 
+# build_macabi <arch>  ->  prints the produced Mac Catalyst static-lib path.
+# Catalyst compiles against the macOS SDK but with the iOS-13.2 `-macabi`
+# target TRIPLE (which stamps the maccatalyst platform into the Mach-O, so the
+# xcframework keeps it distinct from the native macOS slice). The triple names
+# the arch itself, so we pass `--target=<triple>` (single-token form — the
+# space-separated `-target <triple>` form would be word-split by the per-arch
+# call) and DROP the separate `-arch` flag build_arch uses.
+build_macabi() {
+  local arch="$1"
+  local sdkpath; sdkpath="$(xcrun --sdk macosx --show-sdk-path)"
+  local extra=""
+  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2"
+  local objdir="$OUT/obj/maccatalyst-$arch"; mkdir -p "$objdir"
+  for f in "${CPP[@]}"; do
+    local o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
+    xcrun --sdk macosx clang++ -c "$SRC/$f" -o "$o" \
+      -std=gnu++20 -O3 -DNDEBUG \
+      -include "$PREFIX" -I "$SRC" \
+      --target="$arch-apple-ios13.2-macabi" -isysroot "$sdkpath" $extra
+  done
+  local lib="$OUT/libStockfish-maccatalyst-$arch.a"
+  rm -f "$lib"
+  xcrun --sdk macosx libtool -static -o "$lib" "$objdir"/*.o >/dev/null 2>&1
+  printf '%s' "$lib"
+}
+
 fat() { local out="$1"; shift; lipo -create "$@" -output "$out"; printf '%s' "$out"; }
 
 echo "== iphoneos arm64 =="
@@ -101,12 +136,48 @@ MAC_A="$(build_arch macosx arm64  "-mmacosx-version-min=$MAC_MIN")"
 MAC_X="$(build_arch macosx x86_64 "-mmacosx-version-min=$MAC_MIN")"
 MAC="$(fat "$OUT/libStockfish-macosx.a" "$MAC_A" "$MAC_X")"
 
+echo "== appletvos arm64 =="
+TVOS_DEV="$(build_arch appletvos arm64 "-mtvos-version-min=$TVOS_MIN")"
+
+echo "== appletvsimulator arm64 + x86_64 =="
+TVSIM_A="$(build_arch appletvsimulator arm64  "-mtvos-simulator-version-min=$TVOS_MIN")"
+TVSIM_X="$(build_arch appletvsimulator x86_64 "-mtvos-simulator-version-min=$TVOS_MIN")"
+TVOS_SIM="$(fat "$OUT/libStockfish-appletvsimulator.a" "$TVSIM_A" "$TVSIM_X")"
+
+echo "== watchos arm64 (Series 5+/watchOS 6; arm64_32 omitted) =="
+WATCHOS_DEV="$(build_arch watchos arm64 "-mwatchos-version-min=$WATCHOS_MIN")"
+
+echo "== watchsimulator arm64 + x86_64 =="
+WSIM_A="$(build_arch watchsimulator arm64  "-mwatchos-simulator-version-min=$WATCHOS_MIN")"
+WSIM_X="$(build_arch watchsimulator x86_64 "-mwatchos-simulator-version-min=$WATCHOS_MIN")"
+WATCHOS_SIM="$(fat "$OUT/libStockfish-watchsimulator.a" "$WSIM_A" "$WSIM_X")"
+
+echo "== xros (visionOS) arm64 =="
+XROS_DEV="$(build_arch xros arm64 "-mtargetos=xros$VISIONOS_MIN")"
+
+echo "== xrsimulator (visionOS) arm64 + x86_64 =="
+XRSIM_A="$(build_arch xrsimulator arm64  "-mtargetos=xros$VISIONOS_MIN-simulator")"
+XRSIM_X="$(build_arch xrsimulator x86_64 "-mtargetos=xros$VISIONOS_MIN-simulator")"
+XROS_SIM="$(fat "$OUT/libStockfish-xrsimulator.a" "$XRSIM_A" "$XRSIM_X")"
+
+echo "== Mac Catalyst arm64 + x86_64 (-macabi, no simulator slice) =="
+CAT_A="$(build_macabi arm64)"
+CAT_X="$(build_macabi x86_64)"
+CATALYST="$(fat "$OUT/libStockfish-maccatalyst.a" "$CAT_A" "$CAT_X")"
+
 echo "== create xcframework =="
 rm -rf "$XCF_DIR/Stockfish.xcframework"
 xcodebuild -create-xcframework \
   -library "$IOS_DEV" \
   -library "$IOS_SIM" \
   -library "$MAC" \
+  -library "$TVOS_DEV" \
+  -library "$TVOS_SIM" \
+  -library "$WATCHOS_DEV" \
+  -library "$WATCHOS_SIM" \
+  -library "$XROS_DEV" \
+  -library "$XROS_SIM" \
+  -library "$CATALYST" \
   -output "$XCF_DIR/Stockfish.xcframework"
 
 # Clean the intermediate objects; keep only the framework.
