@@ -6,9 +6,10 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
-chess engine. The engine ships as a **prebuilt, multi-arch `binaryTarget`**
-(`Stockfish.xcframework`); a small Objective-C++ bridge in the `CStockfish`
-target links that binary and drives Stockfish's UCI loop. The `SwiftStockfish`
+chess engine. On **Apple** platforms the engine links a **prebuilt, multi-arch
+`Stockfish.xcframework`**; on **Linux** the same Stockfish source is **compiled
+from source**. Either way a small C++ bridge in the `CStockfish` target drives
+Stockfish's UCI loop over an in-process queue. The `SwiftStockfish`
 target exposes a clean Swift API (`StockfishEngine`) plus a version-aware NNUE
 network manager (`StockfishNetworkLoader`).
 
@@ -16,14 +17,17 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 [Licensing](#licensing).
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
-- Platforms: **macOS 10.15+, iOS 13+**.
-- **binaryTarget-based, multi-arch:** the engine xcframework carries
-  ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 slices. The
-  bridge target carries no `.unsafeFlags`, so the package is version-publishable
-  once the binaryTarget is hosted remotely. On `main` the binaryTarget is
-  referenced by **`path:`** (it links the committed xcframework, so `swift build`
-  just works); each release **tag** flips it to a checksummed **`url:`** pointing
-  at the release asset — see [Releasing](#releasing).
+- Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
+  Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 + arm64). WASM is not yet
+  supported. Full matrix + per-platform SIMD: [Platform support](#platform-support).
+- **Conditional engine delivery (selected by the build host in `Package.swift`).**
+  On **Apple** the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
+  (10 slices — ios/macos/tvos/watchos/xros/maccatalyst, device + simulator). On
+  **non-Apple** the same Stockfish source is **compiled from source** in the
+  `CStockfish` target. The public API and the `CStockfish` product are identical
+  either way, and the bridge carries **no `.unsafeFlags`**, so the package stays
+  version-publishable. On `main` the binaryTarget is `path:`-referenced; each
+  release **tag** flips it to a checksummed **`url:`** — see [Releasing](#releasing).
 
 ## Quick start
 
@@ -113,16 +117,24 @@ exactly the 18.1 nets with no manual cleanup.
 
 ## How the engine is built and linked
 
-The engine is **not** compiled from source by this package anymore. It ships as
-a prebuilt `Stockfish.xcframework` referenced by a `binaryTarget`:
+How the engine is delivered depends on the build host — `Package.swift` selects
+the targets with `#if os(...)`:
 
-- **Multi-arch out of the box.** The xcframework carries three slices —
-  ios-arm64, ios-arm64_x86_64-simulator and macos-arm64_x86_64 — built from the
-  same Stockfish 18 source. The per-arch SIMD flags (`StockfishConfig.h`'s
-  `USE_AVX2` / `USE_PEXT` need `-mavx2 -mbmi2`) are applied to the x86_64 slices
-  at *build* time, inside the xcframework. A prebuilt binary carries no compile
-  flags, so SwiftPM's "can't pass C++ flags per-architecture" limitation no
-  longer applies — every supported arch links.
+- **Apple — prebuilt `Stockfish.xcframework`** (a `binaryTarget`). The
+  xcframework carries **10 slices** — ios/macos/tvos/watchos/xros/maccatalyst,
+  device + simulator — all built from the same Stockfish 18 source by
+  `Tools/build-xcframework.sh`. The per-arch SIMD flags (`USE_AVX2` / `USE_PEXT`
+  need `-mavx2 -mbmi2`) are baked into the x86_64 slices at *build* time. A
+  prebuilt binary carries no compile flags, so SwiftPM's "can't pass C++ flags
+  per-architecture" limitation never applies — every Apple arch links with full
+  SIMD.
+- **Non-Apple (Linux) — compiled from source.** The `#else` arm compiles the
+  bundled Stockfish source + the bridge in the `CStockfish` target (no
+  `sources:`, so SwiftPM builds every `.cpp`). SIMD follows the compiler's own
+  feature predefines: full **NEON** on arm64; on x86_64 the publishable default
+  is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
+  [Platform support](#platform-support)). No `.unsafeFlags`, so the source arm is
+  version-pinnable too.
 
 - **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target compiles
   only the Obj-C++ bridge and carries **no `.unsafeFlags`**. The SIMD/NNUE
@@ -136,6 +148,33 @@ a prebuilt `Stockfish.xcframework` referenced by a `binaryTarget`:
   `Sources/CStockfish/stockfish/` (their headers feed the bridge's `#include`s);
   they are simply **excluded from compilation** because the binary already
   contains them.
+
+## Platform support
+
+| Platform | Minimum | Engine | SIMD |
+|---|---|---|---|
+| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT |
+| iOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
+| tvOS | 13 | prebuilt xcframework | arm64 NEON |
+| watchOS | 6 | prebuilt xcframework | arm64 NEON (use a small `Hash`) |
+| visionOS | 1 | prebuilt xcframework | arm64 NEON |
+| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON · x86_64 AVX2 |
+| Linux arm64 | — | source build | NEON+DOTPROD (baseline, full speed) |
+| Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
+| WASM | — | **unsupported** | — (blocked on WASI threading) |
+
+Apple **simulator** x86_64 slices carry AVX2; device slices are arm64/NEON. **CI**
+(`.github/workflows/ci.yml`) builds the Linux x86_64 source arm and the macOS
+binaryTarget arm on every push.
+
+**Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that
+are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
+publishable default is the **SSE2 baseline** (Stockfish's generic NNUE — correct,
+builds everywhere, version-pinnable, but slower). For full x86_64 speed a consumer
+opts in by passing `-mssse3 -msse4.1 -mpopcnt` (and `-mavx2 -mbmi2 -DSF_ENABLE_AVX2`
+for AVX2) in their own build settings, accepting **revision-pinning** on that
+platform. **arm64** — Linux and Apple — pays nothing: NEON is the architecture
+baseline. **WASM** is deferred pending a WASI shared-memory threading runtime.
 
 ## Releasing
 
