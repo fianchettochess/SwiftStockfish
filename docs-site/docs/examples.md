@@ -1,9 +1,9 @@
 # Usage Examples
 
-Copy-paste recipes for driving the engine. Every snippet uses only the public
-Swift API.
+The following examples demonstrate how to drive the engine. Every snippet uses
+only the public Swift API.
 
-## Full setup: loader → engine → handshake
+## Setup: loader, engine, and handshake
 
 ```swift
 import SwiftStockfish
@@ -53,7 +53,7 @@ let move = await bestMove(
 
 ## Stream a live evaluation
 
-Parse `info` lines yourself for an eval bar / depth indicator:
+Parse `info` lines to drive an evaluation bar or depth indicator:
 
 ```swift
 struct Eval { var depth = 0; var scoreCp: Int?; var mateIn: Int?; var pv: [String] = [] }
@@ -120,8 +120,8 @@ engine.send("go wtime 120000 btime 118000 winc 2000 binc 2000")
 
 ## Bundle the nets at build time
 
-A one-off script to download the nets so you can ship them as app resources (no
-runtime network):
+The following script downloads the networks so they can be shipped as application
+resources, avoiding any runtime network access:
 
 ```swift
 import SwiftStockfish
@@ -143,5 +143,5 @@ import SwiftStockfish
 engine.quit()      // ask the UCI loop to exit; teardown also happens on deinit
 ```
 
-Remember: **one engine per process** — fully tear one down before creating
-another.
+Only **one engine per process** is supported. Fully tear down an existing engine
+before creating another.

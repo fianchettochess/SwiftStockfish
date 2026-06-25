@@ -38,10 +38,10 @@ targets: [
 
 ### Products
 
-| Product | Use it when |
+| Product | Description |
 |---|---|
-| `SwiftStockfish` | you want the high-level Swift API (engine wrapper + NNUE loader) — most consumers |
-| `CStockfish` | you want to drive the UCI loop with your own engine lifecycle via the raw C bridge |
+| `SwiftStockfish` | The high-level Swift API (engine wrapper and NNUE loader). Recommended for most consumers. |
+| `CStockfish` | The raw C bridge, for driving the UCI loop with a custom engine lifecycle. |
 
 Both products are `.static`.
 
@@ -53,12 +53,13 @@ Both products are `.static`.
 ## `main` vs. release tags
 
 - On **`main`**, the Apple engine binary is referenced by `path:` (the committed
-  `Frameworks/Stockfish.xcframework`), so a plain `swift build` just works.
+  `Frameworks/Stockfish.xcframework`), so a plain `swift build` succeeds without
+  additional setup.
 - Each **release tag** rewrites that `binaryTarget` to a `url:` + `checksum:`
-  form, pulling the xcframework from the GitHub release asset — a clean url-based
-  binary package with the binary out of git.
+  form, pulling the xcframework from the GitHub release asset. This keeps the
+  binary out of source control and produces a URL-based binary package.
 
-Pin a version tag for a remote dependency; clone `main` for local hacking.
+Pin a version tag for a remote dependency; clone `main` for local development.
 
 ## Building the API documentation
 

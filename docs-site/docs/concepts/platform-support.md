@@ -1,10 +1,11 @@
 # Platform Support
 
 SwiftStockfish presents a byte-for-byte identical Swift API on every platform, but
-*delivers* the engine two ways: a prebuilt xcframework on Apple, and a from-source
-build everywhere else. `Package.swift` picks the right arm based on the build host.
+delivers the engine two ways: a prebuilt xcframework on Apple, and a from-source
+build everywhere else. `Package.swift` selects the appropriate target based on the
+build host.
 
-## The matrix
+## Supported platforms
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
@@ -25,8 +26,8 @@ build everywhere else. `Package.swift` picks the right arm based on the build ho
 
 - **Apple — prebuilt `Stockfish.xcframework`.** A `binaryTarget` with 10 slices
   (ios/macos/tvos/watchos/xros/maccatalyst, device + simulator), all built from
-  the same Stockfish 18 source. Per-arch SIMD flags are baked in at *build* time,
-  so every Apple architecture links with full SIMD and the package carries no
+  the same Stockfish 18 source. Per-architecture SIMD flags are baked in at build
+  time, so every Apple architecture links with full SIMD and the package carries no
   per-architecture compile flags.
 - **Non-Apple (Linux / Android) — compiled from source.** The bridge plus all the
   Stockfish translation units compile in the `CStockfish` target. SIMD follows the
@@ -34,17 +35,17 @@ build everywhere else. `Package.swift` picks the right arm based on the build ho
   default is the SSE2 baseline (correct and version-pinnable, with SSSE3/SSE4.1/AVX2
   available as an opt-in).
 
-The package carries **no `.unsafeFlags`**, which is what keeps it
-version-publishable as a remote dependency. The Stockfish `.cpp` are kept on disk
-for GPL source-availability but excluded from compilation on Apple (the binary
-already contains them).
+The package carries **no `.unsafeFlags`**, which keeps it
+version-publishable as a remote dependency. The Stockfish `.cpp` files are retained
+on disk for GPL source availability but excluded from compilation on Apple, where
+the prebuilt binary already contains them.
 
 ## x86_64 SIMD opt-in (Linux)
 
-AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that are `.unsafeFlags` in
+AVX2/BMI2 — and SSSE3/SSE4.1 — require codegen flags that are `.unsafeFlags` in
 SwiftPM, which would break remote version-pinning, so the publishable default is
-the SSE2 baseline. For full x86_64 speed, opt in from *your own* build settings
-(accepting revision-pinning on that platform):
+the SSE2 baseline. For full x86_64 speed, opt in from your own build settings,
+accepting revision-pinning on that platform:
 
 ```bash
 # SSSE3 / SSE4.1:
@@ -53,24 +54,25 @@ swift build -Xcxx -mssse3 -Xcxx -msse4.1 -Xcxx -mpopcnt
 swift build -Xcxx -mavx2 -Xcxx -mbmi2 -Xcxx -DSF_ENABLE_AVX2
 ```
 
-**arm64 pays nothing** — NEON is the architecture baseline on both Linux and Apple.
+**arm64 incurs no penalty** — NEON is the architecture baseline on both Linux and
+Apple.
 
 ## Cross-compiling for Android
 
-Android uses the same from-source arm as Linux, compiled with the
-[Swift Android SDK](https://github.com/swiftlang/swift-android). Verified building
-`aarch64-unknown-linux-android28` on a macOS host. Three things are specific to
+Android uses the same from-source target as Linux, compiled with the
+[Swift Android SDK](https://github.com/swiftlang/swift-android). The package builds
+`aarch64-unknown-linux-android28` on a macOS host. Three steps are specific to
 cross-compiling from macOS, all handled by `Tools/android/build-android.sh`:
 
-1. **Force the source arm.** SwiftPM evaluates `Package.swift` on the build host,
-   so on macOS `#if os(macOS)` is true and the manifest would pick the Apple
-   xcframework arm even for an Android target. Set
-   `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source arm (and pull
+1. **Force the source target.** SwiftPM evaluates `Package.swift` on the build host,
+   so on macOS `#if os(macOS)` is true and the manifest would otherwise select the
+   Apple xcframework target even for an Android build. Set
+   `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source target (and pull
    in swift-crypto for the loader's SHA-256) regardless of host.
-2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible — a
+2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible: a
    6.3.2 Android SDK must be driven by a matching 6.3.2 host compiler. Install the
    matching toolchain and invoke it explicitly (e.g. `swiftly run swift build …`).
-3. **Archive with the NDK's `llvm-ar`.** Apple's `ar` can't read the response file
+3. **Archive with the NDK's `llvm-ar`.** Apple's `ar` cannot read the response file
    SwiftPM passes when archiving; point the librarian at the NDK's `llvm-ar`.
 
 ```bash
@@ -85,10 +87,10 @@ baseline. The public C API and Swift surface are identical to every other platfo
 
 ## WASM
 
-WASM is deferred: the source arm and the in-memory-queue bridge are already
-WASI-compatible, but today's Swift WASM SDK lacks a working multi-threading runtime
-(and defaults to `-fno-exceptions`, while Stockfish uses exceptions). The remaining
-work is the toolchain, not the bridge.
+WASM is not yet supported. The source target and the in-memory-queue bridge are
+already WASI-compatible, but the current Swift WASM SDK lacks a working
+multi-threading runtime and defaults to `-fno-exceptions`, while Stockfish uses
+exceptions. The remaining work is in the toolchain, not the bridge.
 
 ## Releasing (maintainers)
 

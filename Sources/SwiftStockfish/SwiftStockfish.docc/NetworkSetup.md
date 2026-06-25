@@ -125,7 +125,7 @@ The checksum verification uses CryptoKit on Apple and swift-crypto on non-Apple
 hosts — the same `SHA256` API. The dependency is pulled in only on non-Apple
 builds (or a forced source build), so the Apple dependency graph is unchanged.
 
-## Next steps
+## See Also
 
-- <doc:UsageExamples> — copy-paste recipes that wire the loader to the engine.
+- <doc:UsageExamples> — examples that wire the loader to the engine.
 - <doc:GettingStarted> — add the package and start an engine.

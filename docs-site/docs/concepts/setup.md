@@ -1,8 +1,8 @@
 # Setup & the NNUE Loader
 
 The NNUE networks are large binaries the engine loads from disk at startup.
-`StockfishNetworkLoader` makes a directory hold **exactly** the right nets — and
-it must finish before the engine is created.
+`StockfishNetworkLoader` ensures a directory holds **exactly** the required
+networks, and it must complete before the engine is created.
 
 !!! danger "Order matters"
     Stockfish exits the host process (`exit(EXIT_FAILURE)`) on a missing or invalid
@@ -27,9 +27,10 @@ public enum StockfishNetworks {
 }
 ```
 
-Stockfish 18 uses **two** nets — a "big" net (main evaluation) and a "small" net
-(faster, lower-accuracy path); both must be present. The 12-hex prefix in each
-filename is the net's own SHA-256 prefix, which the loader verifies.
+Stockfish 18 uses **two** networks: a "big" network (main evaluation) and a
+"small" network (a faster, lower-accuracy path). Both must be present. The 12-hex
+prefix in each filename is that network's own SHA-256 prefix, which the loader
+verifies.
 
 ## The loader
 
@@ -48,14 +49,14 @@ public struct StockfishNetworkLoader: Sendable {
 `ensure(in:)`:
 
 1. ensures the directory exists;
-2. **prunes** any `nn-*.nnue` not in the required set (so upgrading from one
-   Stockfish version's nets to another's leaves no leftovers);
-3. for each required net, keeps it if present and SHA-valid, otherwise downloads
-   it (fishtest first, then the official GitHub networks repo), verifies the
-   checksum, and atomically moves it into place.
+2. **prunes** any `nn-*.nnue` not in the required set, so upgrading from one
+   Stockfish version's networks to another's leaves no stale files behind;
+3. for each required network, keeps it if present and checksum-valid, otherwise
+   downloads it (fishtest first, then the official GitHub networks repository),
+   verifies the checksum, and atomically moves it into place.
 
-It is **idempotent** — a present, valid net is never re-downloaded, so a warm
-launch is a fast checksum-only no-op.
+The operation is **idempotent**: a present, valid network is never
+re-downloaded, so a warm launch performs only a checksum verification.
 
 ## Progress
 
@@ -106,20 +107,21 @@ public enum LoaderError: Error, Sendable {
 
 ## Upgrading Stockfish (e.g. 18 → 18.1)
 
-When the engine binary is bumped, update the manifest and the loader handles the
+When the engine binary is updated, update the manifest and the loader handles the
 rest:
 
-1. Bump `StockfishNetworks.stockfishVersion`.
-2. Update `StockfishNetworks.required` with the new version's net filenames (copy
-   them verbatim from the engine's `evaluate.h` — `EvalFileDefaultNameBig` /
+1. Update `StockfishNetworks.stockfishVersion`.
+2. Update `StockfishNetworks.required` with the new version's network filenames,
+   copied verbatim from the engine's `evaluate.h` (`EvalFileDefaultNameBig` and
    `EvalFileDefaultNameSmall`).
 
-On the next `ensure(in:)`, the loader downloads the new nets and **prunes the old
-ones**, so a directory that held the 18 nets becomes a directory holding exactly
-the 18.1 nets with no manual cleanup.
+On the next `ensure(in:)`, the loader downloads the new networks and **prunes the
+old ones**, so a directory that held the 18 networks becomes a directory holding
+exactly the 18.1 networks with no manual cleanup.
 
 ## Cross-platform crypto
 
-The checksum verification uses CryptoKit on Apple and swift-crypto on non-Apple
-hosts — the same `SHA256` API. The dependency is pulled in only on non-Apple
-builds (or a forced source build), so the Apple dependency graph is unchanged.
+The checksum verification uses CryptoKit on Apple platforms and swift-crypto on
+non-Apple hosts, through the same `SHA256` API. The swift-crypto dependency is
+pulled in only on non-Apple builds (or a forced source build), so the Apple
+dependency graph is unchanged.

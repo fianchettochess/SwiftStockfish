@@ -1,6 +1,6 @@
 # Driving the Engine
 
-`StockfishEngine` is a thin UCI transport: drive it with the standard UCI command
+`StockfishEngine` is a thin UCI transport. Drive it with the standard UCI command
 sequence and parse its replies from the `output` stream.
 
 ## The transport
@@ -16,7 +16,7 @@ public final class StockfishEngine: @unchecked Sendable {
 }
 ```
 
-`output` is unbounded-buffered, so iterate it promptly if you care about
+`output` is unbounded-buffered, so iterate it promptly to manage
 back-pressure. It finishes when the engine is torn down.
 
 ## The UCI handshake
@@ -73,7 +73,7 @@ func bestMove(for fen: String, depth: Int, engine: StockfishEngine) async -> Str
 !!! tip "Sanitize FENs from your own board"
     Stockfish's parser asserts on inconsistent metadata and **aborts the process**.
     If you build FENs from your own state, sanitize them first — with
-    [ChessCore](https://github.com/<owner>/ChessCore), send
+    [ChessCore](https://github.com/jaredbrewer/ChessCore), send
     `position.stockfishSafeFEN`.
 
 ## Search controls
@@ -99,8 +99,8 @@ engine.send("go depth 18")
 
 ## Lifecycle
 
-A single output loop should own the stream for the engine's whole life. When
-you're done, `quit()` asks the UCI loop to exit; teardown also happens
+A single output loop should own the stream for the engine's entire lifetime.
+Calling `quit()` asks the UCI loop to exit; teardown also happens
 automatically when the last reference is released (the `deinit` sends `quit`, joins
 the engine and reader threads, and finishes `output`).
 
@@ -108,13 +108,13 @@ the engine and reader threads, and finishes `output`).
 engine.quit()
 ```
 
-Remember the two hard rules from the home page — **one engine per process** and
-**valid nets before creation**. Both are process-fatal if violated.
+Two constraints are mandatory: **one engine per process** and
+**valid nets before creation**. Violating either is process-fatal.
 
 ## The low-level C bridge
 
-If you'd rather manage the engine yourself, depend on the `CStockfish` product and
-call the bridge directly. It's a tiny `extern "C"` surface:
+To manage the engine directly, depend on the `CStockfish` product and
+call the bridge yourself. It exposes a small `extern "C"` surface:
 
 ```c
 typedef const void *SFEngineRef;
@@ -126,5 +126,5 @@ void        sf_send_command(SFEngineRef engine, const char *command);
 void        sf_destroy(SFEngineRef engine);
 ```
 
-`StockfishEngine` is a thin Swift layer over exactly these four functions — it
-exists so you don't have to bridge the callback and the stream yourself.
+`StockfishEngine` is a thin Swift layer over exactly these four functions,
+handling the callback-to-stream bridging on your behalf.
