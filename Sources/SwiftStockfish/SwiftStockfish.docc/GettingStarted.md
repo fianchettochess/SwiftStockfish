@@ -5,9 +5,9 @@ Add the package, prepare the NNUE networks, and start an engine.
 ## Overview
 
 SwiftStockfish is a Swift Package Manager dependency. The high-level
-``SwiftStockfish`` product is the one most consumers want; a lower-level
-`CStockfish` product exposes the raw C bridge if you'd rather manage the engine
-lifecycle yourself.
+``SwiftStockfish`` product is the recommended entry point for most applications.
+A lower-level `CStockfish` product exposes the raw C bridge for callers that need
+to manage the engine lifecycle directly.
 
 ## Add the package
 
@@ -31,15 +31,17 @@ targets: [
 
 ## Prepare the NNUE networks
 
-The evaluation networks are large binaries that are *not* embedded in the engine
-— it loads them from disk at startup, and exits the process if they're missing.
-``StockfishNetworkLoader`` makes a directory hold exactly the right nets.
+The evaluation networks are large binaries that are *not* embedded in the engine.
+The engine loads them from disk at startup and exits the process if they are
+missing. ``StockfishNetworkLoader`` populates a directory with the exact networks
+the engine requires.
 
-There are two consumption models; pick one:
+There are two consumption models. Choose the one that fits your application:
 
 **(a) Runtime — download on first launch.** Call ``StockfishNetworkLoader/ensure(in:progress:)``
-into a writable directory at startup, show progress, then create the engine.
-Subsequent launches find valid nets and `ensure` is a fast checksum-only no-op.
+into a writable directory at startup, report progress, then create the engine.
+Subsequent launches find valid networks, and `ensure` becomes a fast,
+checksum-only no-op.
 
 ```swift
 import SwiftStockfish
@@ -52,23 +54,23 @@ try await StockfishNetworkLoader().ensure(in: dir) { progress in
 }
 ```
 
-**(b) Build/setup time — bundle for an offline app.** Run the loader once on your
-machine (a build step), then ship the resulting `nn-*.nnue` files as bundled app
-resources and point the engine at the bundle directory. No network access is
-needed on the user's device.
+**(b) Build/setup time — bundle for an offline app.** Run the loader once as a
+build step, then ship the resulting `nn-*.nnue` files as bundled app resources
+and point the engine at the bundle directory. No network access is required on
+the user's device.
 
 ```swift
 // At runtime, with the nets already in your app bundle:
 let dir = Bundle.main.resourceURL!.appending(path: "stockfish-nets")
 ```
 
-In **both** models the rule is the same: the loader (or a known-good bundled
-directory) must be ready *before* the engine is created.
+In **both** models the same requirement applies: the loader, or a known-good
+bundled directory, must be ready *before* the engine is created.
 
 ## Start the engine
 
-``StockfishEngine/init(networkDirectory:)`` is failable — it returns `nil` if the
-bridge couldn't start (for example, it failed to create its pipes).
+``StockfishEngine/init(networkDirectory:)`` is failable. It returns `nil` if the
+bridge cannot start, for example because it failed to create its pipes.
 
 ```swift
 guard let engine = StockfishEngine(networkDirectory: dir) else {
@@ -76,13 +78,13 @@ guard let engine = StockfishEngine(networkDirectory: dir) else {
 }
 ```
 
-## Talk UCI
+## Communicate over UCI
 
-You read from ``StockfishEngine/output`` (an `AsyncStream<String>` of UCI lines,
-newline-stripped, in order) and write with ``StockfishEngine/send(_:)``. The only
+Read from ``StockfishEngine/output`` (an `AsyncStream<String>` of UCI lines,
+newline-stripped, in order) and write with ``StockfishEngine/send(_:)``. The
 convenience wrappers are ``StockfishEngine/uci()``,
-``StockfishEngine/isReady()``, and ``StockfishEngine/quit()``; everything else
-(`position`, `go`, `stop`, `setoption`) is a raw `send(_:)`.
+``StockfishEngine/isReady()``, and ``StockfishEngine/quit()``; every other
+command (`position`, `go`, `stop`, `setoption`) is issued as a raw `send(_:)`.
 
 ```swift
 Task {
@@ -98,7 +100,7 @@ engine.uci()
 engine.send("position startpos moves e2e4 e7e5")
 ```
 
-## Next steps
+## See Also
 
 - <doc:DrivingTheEngine> — a complete analyze-a-position flow and option setup.
-- <doc:PlatformSupport> — the platform/SIMD matrix and Android cross-compiling.
+- <doc:PlatformSupport> — the platform and SIMD matrix and Android cross-compiling.

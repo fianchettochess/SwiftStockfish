@@ -1,16 +1,16 @@
 # Usage Examples
 
-Copy-paste recipes for driving the engine. Every snippet uses only the public
+Worked examples for driving the engine. Every snippet uses only the public
 SwiftStockfish API.
 
 ## Overview
 
-These recipes assume the two hard rules: the NNUE nets must be valid *before* the
+These examples rely on two requirements: the NNUE nets must be valid *before* the
 engine is created, and only one ``StockfishEngine`` may be alive per process.
 Each example reads from ``StockfishEngine/output`` and writes with
 ``StockfishEngine/send(_:)``.
 
-## Full setup: loader to engine to handshake
+## Full Setup: Loader to Engine to Handshake
 
 Run ``StockfishNetworkLoader/ensure(in:progress:)`` first, create the engine with
 ``StockfishEngine/init(networkDirectory:)``, then complete the UCI handshake with
@@ -45,7 +45,7 @@ func startEngine() async throws -> StockfishEngine {
 > must already be valid in `dir`. If the directory is missing or holds an invalid
 > net, Stockfish aborts the whole process — that is not a recoverable error.
 
-## Best move for a position
+## Best Move for a Position
 
 Send the position, send `go`, and read until `bestmove`:
 
@@ -68,9 +68,9 @@ let move = await bestMove(
 )
 ```
 
-## Stream a live evaluation
+## Stream a Live Evaluation
 
-Parse `info` lines yourself for an eval bar or depth indicator:
+Parse `info` lines for an evaluation bar or depth indicator:
 
 ```swift
 struct Eval { var depth = 0; var scoreCp: Int?; var mateIn: Int?; var pv: [String] = [] }
@@ -105,9 +105,9 @@ for await line in engine.output {
 }
 ```
 
-## Top-3 candidate moves (MultiPV)
+## Top Candidate Moves (MultiPV)
 
-Set `MultiPV` before searching, then each depth emits one `info … multipv N …`
+Set `MultiPV` before searching. Each depth then emits one `info … multipv N …`
 line per candidate:
 
 ```swift
@@ -130,9 +130,9 @@ for await line in engine.output {
 print(lines)   // [1: "e2e4", 2: "d2d4", 3: "g1f3"]
 ```
 
-## Play with a real clock
+## Play with a Clock
 
-`go` accepts the usual UCI time controls, all via ``StockfishEngine/send(_:)``:
+`go` accepts the standard UCI time controls, all via ``StockfishEngine/send(_:)``:
 
 ```swift
 engine.send("position startpos moves e2e4 e7e5 g1f3")
@@ -140,22 +140,22 @@ engine.send("go wtime 120000 btime 118000 winc 2000 binc 2000")
 // Read until "bestmove …" as above.
 ```
 
-## Bundle the nets at build time
+## Bundle the Nets at Build Time
 
 There are two consumption models. The runtime model downloads on first launch
 with ``StockfishNetworkLoader/ensure(in:progress:)`` (shown above). The
-build-time model runs the loader once on your machine and ships the resulting
+build-time model runs the loader once during development and ships the resulting
 `nn-*.nnue` files as app resources, so the device needs no network access.
 
-### Option A: runtime download
+### Option A: Runtime Download
 
 Call ``StockfishNetworkLoader/ensure(in:progress:)`` into a writable directory at
-startup, as in the full-setup recipe. Subsequent launches find valid nets and
+startup, as in the full-setup example. Subsequent launches find valid nets, and
 `ensure` is a fast checksum-only no-op.
 
-### Option B: bundle at build time
+### Option B: Bundle at Build Time
 
-A one-off command-line tool to download the nets so you can ship them as app
+A one-off command-line tool downloads the nets so they can be shipped as app
 resources:
 
 ```swift
@@ -180,9 +180,9 @@ let dir = Bundle.main.resourceURL!.appending(path: "stockfish-nets")
 guard let engine = StockfishEngine(networkDirectory: dir) else { return }
 ```
 
-## Tear down
+## Tear Down
 
-``StockfishEngine/quit()`` asks the UCI loop to exit; teardown also happens
+``StockfishEngine/quit()`` asks the UCI loop to exit. Teardown also happens
 automatically when the last reference is released.
 
 ```swift
@@ -193,7 +193,7 @@ engine.quit()      // ask the UCI loop to exit; teardown also happens on release
 > before creating another — the bridge swaps the process-global stream buffers,
 > so a second live engine clobbers the first's redirection.
 
-## See also
+## See Also
 
-- <doc:DrivingTheEngine> — the handshake and search controls in depth.
+- <doc:DrivingTheEngine> — the handshake and search controls in detail.
 - <doc:NetworkSetup> — how the loader prepares the nets.

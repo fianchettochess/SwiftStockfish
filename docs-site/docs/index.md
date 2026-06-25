@@ -13,14 +13,14 @@ over an in-process queue, and the Swift surface is identical on every platform.
 - **GPL-3.0** — this package ships and links Stockfish, so the whole package is a
   GPL-3.0 work (see [Licensing](#licensing)).
 
-## Two pieces
+## Components
 
 | Type | Role |
 |---|---|
 | `StockfishEngine` | a live engine you talk to in UCI — `send(_:)` commands, read the `output` `AsyncStream` |
 | `StockfishNetworkLoader` | downloads, verifies (SHA-256), and prunes the NNUE evaluation networks |
 
-## Two rules you must follow
+## Requirements
 
 !!! danger "Run the loader before creating the engine"
     Stockfish loads its NNUE network during initialization and calls
@@ -63,7 +63,7 @@ engine.send("position startpos")
 engine.send("go depth 20")
 ```
 
-## Where to next
+## See Also
 
 - [Installation](installation.md)
 - [Getting Started](getting-started.md)

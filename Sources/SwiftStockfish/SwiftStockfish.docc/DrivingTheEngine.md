@@ -1,14 +1,14 @@
 # Driving the Engine
 
-A complete flow: handshake, set options, analyze a position, and read the
-result off the UCI stream.
+A complete flow covering the handshake, option configuration, single-position
+analysis, and reading results from the UCI stream.
 
 ## Overview
 
 ``StockfishEngine`` is a thin UCI transport. You drive it with the standard UCI
 command sequence and parse its replies from the ``StockfishEngine/output``
-stream. This article walks through a full single-position analysis and the
-lifecycle rules that keep the process healthy.
+stream. This article covers a full single-position analysis and the lifecycle
+rules that keep the process healthy.
 
 ## The UCI handshake
 
@@ -75,13 +75,13 @@ let move = await bestMove(
 ```
 
 > Tip: When the FEN comes from your own board state, sanitize it first. If you
-> use [ChessCore](https://github.com/<owner>/ChessCore), send
+> use [ChessCore](https://github.com/jaredbrewer/ChessCore), send
 > `position.stockfishSafeFEN` — Stockfish's parser asserts on inconsistent
 > metadata and will abort the process otherwise.
 
 ## Search controls
 
-`go` accepts the usual UCI limits, all via ``StockfishEngine/send(_:)``:
+`go` accepts the standard UCI limits, all via ``StockfishEngine/send(_:)``:
 
 ```swift
 engine.send("go depth 20")                    // fixed depth
@@ -112,14 +112,14 @@ engine.quit()
 // Releasing the last reference tears the bridge down; no further output arrives.
 ```
 
-Remember the two hard rules from the landing page: **one engine per process**,
-and **the NNUE nets must be valid before the engine is created**. Both are
-process-fatal if violated, not recoverable Swift errors.
+Two rules are mandatory: **one engine per process**, and **the NNUE nets must be
+valid before the engine is created**. Both are process-fatal if violated, not
+recoverable Swift errors.
 
 ## The low-level C bridge
 
-If you'd rather manage the engine yourself, depend on the `CStockfish` product
-and call the bridge directly. It's a tiny `extern "C"` surface:
+To manage the engine directly, depend on the `CStockfish` product and call the
+bridge yourself. It exposes a small `extern "C"` surface:
 
 ```c
 SFEngineRef sf_create(const char *nnueDir);
@@ -128,5 +128,5 @@ void        sf_send_command(SFEngineRef engine, const char *command);
 void        sf_destroy(SFEngineRef engine);
 ```
 
-``StockfishEngine`` is a thin Swift layer over exactly these four functions — it
-exists so you don't have to bridge the callback and the stream yourself.
+``StockfishEngine`` is a thin Swift layer over exactly these four functions,
+handling the callback and stream bridging on your behalf.

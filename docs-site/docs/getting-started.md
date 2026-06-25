@@ -7,9 +7,9 @@ Prepare the NNUE networks, start an engine, and exchange UCI.
 The evaluation networks are large binaries that are **not** embedded in the engine
 (`StockfishConfig.h` sets `NNUE_EMBEDDING_OFF`); the engine loads them from disk at
 startup and **exits the process** if they're missing. `StockfishNetworkLoader`
-makes a directory hold exactly the right nets.
+ensures a directory holds exactly the required networks.
 
-Pick one of two consumption models:
+Choose one of two delivery models:
 
 === "(a) Runtime download"
 
@@ -52,12 +52,12 @@ guard let engine = StockfishEngine(networkDirectory: dir) else {
 }
 ```
 
-## 3. Talk UCI
+## 3. Exchange UCI
 
-You read replies from `engine.output` (an `AsyncStream<String>` of UCI lines,
-newline-stripped, in order) and write commands with `engine.send(_:)`. The only
-convenience wrappers are `uci()`, `isReady()`, and `quit()`; everything else
-(`position`, `go`, `stop`, `setoption`) is a raw `send(_:)`.
+Read replies from `engine.output` (an `AsyncStream<String>` of UCI lines,
+newline-stripped, in order) and write commands with `engine.send(_:)`. The
+convenience wrappers are `uci()`, `isReady()`, and `quit()`; every other command
+(`position`, `go`, `stop`, `setoption`) is sent as a raw `send(_:)`.
 
 ```swift
 Task {
@@ -73,7 +73,7 @@ engine.uci()
 engine.send("position startpos moves e2e4 e7e5")
 ```
 
-## The API at a glance
+## API summary
 
 ```swift
 public final class StockfishEngine: @unchecked Sendable {
@@ -86,8 +86,8 @@ public final class StockfishEngine: @unchecked Sendable {
 }
 ```
 
-## Next steps
+## See also
 
 - [Setup & NNUE loader](concepts/setup.md) — the loader in depth.
-- [Driving the engine](concepts/driving-the-engine.md) — a full analysis flow.
-- [Platform support](concepts/platform-support.md) — the platform/SIMD matrix.
+- [Driving the engine](concepts/driving-the-engine.md) — a complete analysis flow.
+- [Platform support](concepts/platform-support.md) — the platform and SIMD matrix.

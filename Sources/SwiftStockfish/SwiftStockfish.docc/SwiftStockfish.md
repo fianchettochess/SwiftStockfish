@@ -20,7 +20,7 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 - ``StockfishNetworkLoader`` — downloads, verifies (SHA-256), and prunes the NNUE
   evaluation networks listed in ``StockfishNetworks/required``.
 
-### Two rules you must follow
+### Requirements
 
 > Warning: **Run the loader before creating the engine.** Stockfish loads its
 > NNUE network during initialization and calls `exit(EXIT_FAILURE)` if the net is
@@ -33,7 +33,7 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 > A second live ``StockfishEngine`` clobbers the first's redirection. Create, use,
 > and destroy one engine before making another.
 
-### Quick start
+### Example
 
 ```swift
 import SwiftStockfish

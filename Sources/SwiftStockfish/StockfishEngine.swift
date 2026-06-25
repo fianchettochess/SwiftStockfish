@@ -44,7 +44,7 @@ public final class StockfishEngine: @unchecked Sendable {
     ///
     /// Lines are delivered without their trailing newline. The stream is
     /// unbounded-buffered; iterate it promptly if you care about back-pressure.
-    /// It finishes when the engine is destroyed (``deinit`` / ``quit()`` →
+    /// It finishes when the engine is destroyed (`deinit` / ``quit()`` →
     /// teardown).
     public var output: AsyncStream<String> { _output }
 
@@ -106,7 +106,7 @@ public final class StockfishEngine: @unchecked Sendable {
     public func isReady() { send("isready") }
 
     /// Send `quit`, asking the engine's UCI loop to exit. Teardown also happens
-    /// automatically in ``deinit``; call this if you want to wind the engine
+    /// automatically in `deinit`; call this if you want to wind the engine
     /// down before the object is released.
     public func quit() { send("quit") }
 }
