@@ -16,6 +16,8 @@
 
 #include <string>
 #include <mutex>
+#include <condition_variable>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <streambuf>
@@ -35,10 +37,21 @@
 // second engine's rdbuf swap clobbers the first's, routing the first
 // engine's output to the second's callback and leaving the first one's
 // caller waiting forever for output that arrived on someone else's stream.
-// In the app this is enforced naturally (one `EngineManager`). In
-// tests, `ContentView.task` is gated on `XCTestConfigurationFilePath`
-// so the app-side warm-up doesn't fire while a test owns the
-// engine.
+// Worse: the streambufs are STACK LOCALS of `runEngine`, so when the
+// clobbered engine's loop exits, the survivor keeps reading a DANGLING
+// stack-allocated streambuf through `std::cin` — the 2026-07-01 crash
+// reports caught exactly that (getline/memchr walking a dead thread's
+// stack into a guard page under Swift Testing's default parallelism,
+// and on the stop() → start() restart overlap).
+//
+// ENFORCED (2026-07-01): `sf_create` now blocks on a process-wide
+// lifecycle gate until the previous engine is FULLY destroyed (loop
+// joined, rdbufs restored). Overlapping instances serialize instead of
+// corrupting each other: parallel engine tests queue up, a restart's
+// create waits out the old engine's teardown, and concurrent probes on
+// Android line up behind one another. A leaked engine (create with no
+// destroy) makes the next create wait forever — a visible hang instead
+// of a heisencrash, and a bug in the caller by contract.
 //
 // PORTABILITY: the former POSIX-pipe I/O (a `pipe()` pair + a reader thread
 // doing `read`/`write` on fds) has been replaced with an in-memory
@@ -51,6 +64,13 @@
 using namespace Stockfish;
 
 static bool sfInitialized = false;
+
+// Process-wide exclusive-instance gate (see the NOTE above): held from
+// sf_create until the END of sf_destroy. A condvar (not a bare mutex)
+// because acquire and release happen on different threads.
+static std::mutex gLifecycleMutex;
+static std::condition_variable gLifecycleCV;
+static bool gEngineLive = false;
 
 struct SFEngineImpl;
 
@@ -160,6 +180,15 @@ void runEngine(SFEngineImpl *impl) {
 extern "C" {
 
 SFEngineRef sf_create(const char *nnueDir) {
+    // Wait for the previous engine (if any) to be fully torn down before
+    // touching the process-global cin/cout state. Blocks the calling
+    // thread — callers already invoke sf_create off the main thread.
+    {
+        std::unique_lock<std::mutex> lock(gLifecycleMutex);
+        gLifecycleCV.wait(lock, [] { return !gEngineLive; });
+        gEngineLive = true;
+    }
+
     auto impl = new SFEngineImpl();
 
     if (!sfInitialized) {
@@ -241,6 +270,14 @@ void sf_destroy(SFEngineRef ref) {
 #endif
 
     delete impl;
+
+    // Loop joined, rdbufs restored, impl freed — release the lifecycle
+    // gate so a waiting sf_create can proceed against clean global state.
+    {
+        std::lock_guard<std::mutex> lock(gLifecycleMutex);
+        gEngineLive = false;
+    }
+    gLifecycleCV.notify_one();
 }
 
 void sf_set_output_callback(SFEngineRef ref, SFOutputCallback callback, const void *context) {
@@ -255,6 +292,12 @@ void sf_send_command(SFEngineRef ref, const char *command) {
     auto impl = (SFEngineImpl *)ref;
     std::lock_guard<std::mutex> lock(impl->writeMutex);
     impl->inputQueue.push(std::string(command));
+}
+
+bool sf_wait_idle(int timeoutMs) {
+    std::unique_lock<std::mutex> lock(gLifecycleMutex);
+    return gLifecycleCV.wait_for(lock, std::chrono::milliseconds(timeoutMs),
+                                 [] { return !gEngineLive; });
 }
 
 }
