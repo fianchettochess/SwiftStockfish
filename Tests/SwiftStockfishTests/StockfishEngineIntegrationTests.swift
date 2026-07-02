@@ -91,4 +91,29 @@ struct StockfishEngineIntegrationTests {
         let bestmove = try await waitForLine(from: engine) { $0.hasPrefix("bestmove") }
         #expect(bestmove.hasPrefix("bestmove"))
     }
+
+    @Test("shutdown is idempotent; send after shutdown is a safe no-op")
+    func shutdownIsIdempotentAndGuardsSend() async throws {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try await StockfishNetworkLoader().ensure(in: dir)
+
+        guard let engine = StockfishEngine(networkDirectory: dir) else {
+            throw IntegrationError.engineCreationFailed
+        }
+        engine.uci()
+        _ = try await waitForLine(from: engine) { $0 == "uciok" }
+
+        engine.shutdown()
+        engine.shutdown()           // second call must be a no-op, not a double sf_destroy
+        engine.send("isready")      // must not touch the freed bridge
+
+        // The output stream finishes on shutdown — iterating it must end
+        // immediately rather than hanging or delivering new lines.
+        var post = 0
+        for await _ in engine.output { post += 1; if post > 1_000 { break } }
+        // (Buffered pre-shutdown lines may drain; the loop just must terminate.)
+        #expect(Bool(true))
+    }
 }

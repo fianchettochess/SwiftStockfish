@@ -25,13 +25,24 @@ import CStockfish
 ///
 /// - Important: Only ONE `StockfishEngine` may be alive in a process at a time.
 ///   The bridge swaps the process-global `std::cin`/`std::cout` stream buffers
-///   so Stockfish talks to in-process pipes; a second instance's swap clobbers
-///   the first's. Create, use, and destroy one engine before making another.
+///   so Stockfish talks to in-process pipes. Since 2026-07-01 the bridge
+///   ENFORCES this with a lifecycle gate: creating a second engine BLOCKS the
+///   calling thread until the first is fully destroyed — so never create an
+///   engine on the main thread/actor, and always tear engines down (a leaked
+///   engine hangs the next create forever). ``shutdown()`` joins the engine
+///   threads; call it off-main too.
 public final class StockfishEngine: @unchecked Sendable {
 
     // `SFEngineRef` is `const void *`; in Swift it surfaces as an opaque
     // pointer. Treated as immutable after init, so the class is safe to share.
     private let engine: SFEngineRef
+
+    /// Guards `isShutdown` and orders every `sf_send_command` strictly
+    /// before `sf_destroy` — without it a `send(_:)` racing ``shutdown()``
+    /// could hand a freed ref to the bridge (the same TOCTOU class as the
+    /// 2026-07-01 double-destroy crash in the old app-side wrapper).
+    private let teardownLock = NSLock()
+    private var isShutdown = false
 
     // The output stream and its continuation. The continuation is fed from the
     // C callback (which may fire on the bridge's reader thread), so all access
@@ -85,14 +96,35 @@ public final class StockfishEngine: @unchecked Sendable {
     }
 
     deinit {
-        // sf_destroy sends "quit", joins the engine + reader threads, and frees
-        // the bridge. After it returns no further callbacks can fire.
+        shutdown()
+    }
+
+    /// Explicitly destroy the engine: sends the bridge teardown (`quit`),
+    /// joins the engine + reader threads, frees the bridge, and finishes
+    /// ``output``. Idempotent — safe to call more than once, and `deinit`
+    /// falls through to it. Prefer calling this yourself from a background
+    /// context: it JOINS threads (can take a moment while a search winds
+    /// down), and relying on `deinit` means the join runs on whichever
+    /// thread drops the last reference — often the main actor.
+    public func shutdown() {
+        teardownLock.lock()
+        defer { teardownLock.unlock() }
+        guard !isShutdown else { return }
+        isShutdown = true
+        // sf_destroy sends "quit", joins the engine + reader threads, frees
+        // the bridge, and releases the process-wide lifecycle gate. After it
+        // returns no further callbacks can fire.
         sf_destroy(engine)
         continuation.finish()
     }
 
     /// Send a raw UCI command (no trailing newline needed).
+    /// A no-op after ``shutdown()`` — the C call happens under the teardown
+    /// lock so it can never target a freed engine.
     public func send(_ command: String) {
+        teardownLock.lock()
+        defer { teardownLock.unlock() }
+        guard !isShutdown else { return }
         command.withCString { sf_send_command(engine, $0) }
     }
 
