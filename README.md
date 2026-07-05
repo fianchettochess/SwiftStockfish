@@ -38,7 +38,8 @@ import SwiftStockfish
 
 // 1. Make a directory hold exactly the NNUE nets the engine needs. This MUST
 //    happen before the engine is created (see the warning below).
-let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stockfish-nets")
 try await StockfishNetworkLoader().ensure(in: dir) { p in
     print("\(p.file): \(p.bytesDownloaded)/\(p.totalBytes)")
 }
@@ -290,9 +291,10 @@ removes from `main`) so a plain local `swift build` keeps working; only the
 release tags carry the url form. Because every release starts from a clean
 path-based `main`, the workflow is fully re-runnable.
 
-> The existing **`18.0.0`** tag is the original **path-based** form (binary
-> committed to the repo). The first CI release supersedes it with the url-based
-> form described above.
+> **`18.0.0`** is already published as a url-based release — consumers pinning
+> `from: "18.0.0"` receive the xcframework via the release asset, not the
+> committed binary. `main` keeps the committed binary (path-based) so a plain
+> local `swift build` works; the url form lives on the release tag only.
 
 **NNUE nets** are orthogonal to all of this: keep using `StockfishNetworkLoader`
 at runtime, or bundle the nets as a package resource — the loader's logic is

@@ -75,7 +75,8 @@ let move = await bestMove(
 ```
 
 > Tip: When the FEN comes from your own board state, sanitize it first. If you
-> use [ChessCore](https://github.com/jaredbrewer/ChessCore), send
+> use [ChessCore](https://github.com/jaredbrewer/ChessCore) (a private sibling
+> package; the link may not resolve for external readers), send
 > `position.stockfishSafeFEN` — Stockfish's parser asserts on inconsistent
 > metadata and will abort the process otherwise.
 

@@ -20,7 +20,8 @@ Choose one of two delivery models:
     ```swift
     import SwiftStockfish
 
-    let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("stockfish-nets")
     try await StockfishNetworkLoader().ensure(in: dir) { progress in
         if let fraction = progress.fractionCompleted {
             print(progress.file, Int(fraction * 100), "%")
@@ -35,7 +36,7 @@ Choose one of two delivery models:
     No network access on the user's device.
 
     ```swift
-    let dir = Bundle.main.resourceURL!.appending(path: "stockfish-nets")
+    let dir = Bundle.main.resourceURL!.appendingPathComponent("stockfish-nets")
     ```
 
 In **both** models the rule is the same: a valid net directory must be ready

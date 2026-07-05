@@ -9,7 +9,8 @@ only the public Swift API.
 import SwiftStockfish
 
 func startEngine() async throws -> StockfishEngine {
-    let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+    let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("stockfish-nets")
 
     // Nets first — Stockfish exits the process without them.
     try await StockfishNetworkLoader().ensure(in: dir) { p in
@@ -128,7 +129,7 @@ import SwiftStockfish
 
 @main struct FetchNets {
     static func main() async throws {
-        let out = URL(filePath: CommandLine.arguments[1])
+        let out = URL(fileURLWithPath: CommandLine.arguments[1])
         try await StockfishNetworkLoader().ensure(in: out) { p in
             print(p.file, p.bytesDownloaded)
         }

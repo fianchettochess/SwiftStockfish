@@ -16,14 +16,17 @@
 //
 //   * BINARYTARGET-BASED, MULTI-ARCH: the Stockfish engine ships as a prebuilt
 //     `Stockfish.xcframework` (the `StockfishEngine` binaryTarget). The
-//     xcframework carries three slices — ios-arm64, ios-arm64_x86_64-simulator,
-//     macos-arm64_x86_64 — built from the same Stockfish 18 source, with the
+//     xcframework carries ten slices (ios-arm64, ios-arm64_x86_64-simulator,
+//     ios-arm64_x86_64-maccatalyst, macos-arm64_x86_64, tvos-arm64,
+//     tvos-arm64_x86_64-simulator, watchos-arm64, watchos-arm64_x86_64-simulator,
+//     xros-arm64, xros-arm64_x86_64-simulator) — built from the same Stockfish 18
+//     source, with the
 //     per-arch SIMD flags (`-mavx2 -mbmi2` on the x86_64 slices) baked in at
 //     build time. A prebuilt binary needs no per-architecture compile flags, so
 //     this package builds for every supported arch, not just arm64.
 //
 //   * The `CStockfish` target is now BRIDGE-ONLY: it compiles just the small
-//     Obj-C++ bridge (`StockfishBridge.mm`) that drives Stockfish's UCI loop
+//     C++ bridge (`StockfishBridge.cpp`) that drives Stockfish's UCI loop
 //     over in-process pipes, and links the engine binary for symbols. The
 //     Stockfish C++ source still lives under `stockfish/` — its HEADERS are on
 //     the bridge's header search path (so `#include "uci.h"` etc. resolve), and
@@ -206,7 +209,7 @@ let package = Package(
             type: .static,
             targets: ["SwiftStockfish"]
         ),
-        // The low-level C/Obj-C++ bridge (sf_create / sf_send_command / …),
+        // The low-level C/C++ bridge (sf_create / sf_send_command / …),
         // for consumers that want to drive the UCI loop with their own engine
         // lifecycle rather than the Swift wrapper. (Fianchetto uses this to
         // keep its existing start/stop generation logic during validation.)

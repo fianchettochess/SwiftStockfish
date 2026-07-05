@@ -41,7 +41,8 @@ defaults to ``StockfishNetworks/required``, available afterward as
 ```swift
 import SwiftStockfish
 
-let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stockfish-nets")
 try await StockfishNetworkLoader().ensure(in: dir)
 ```
 

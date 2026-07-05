@@ -39,7 +39,8 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 import SwiftStockfish
 
 // 1. Ensure the NNUE nets exist BEFORE the engine is created.
-let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stockfish-nets")
 try await StockfishNetworkLoader().ensure(in: dir) { p in
     print("\(p.file): \(p.bytesDownloaded)/\(p.totalBytes)")
 }

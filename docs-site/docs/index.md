@@ -41,7 +41,8 @@ over an in-process queue, and the Swift surface is identical on every platform.
 import SwiftStockfish
 
 // 1. Ensure the NNUE nets exist BEFORE the engine is created.
-let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stockfish-nets")
 try await StockfishNetworkLoader().ensure(in: dir) { p in
     print("\(p.file): \(p.bytesDownloaded)/\(p.totalBytes)")
 }
