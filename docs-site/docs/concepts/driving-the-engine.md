@@ -73,7 +73,8 @@ func bestMove(for fen: String, depth: Int, engine: StockfishEngine) async -> Str
 !!! tip "Sanitize FENs from your own board"
     Stockfish's parser asserts on inconsistent metadata and **aborts the process**.
     If you build FENs from your own state, sanitize them first — with
-    [ChessCore](https://github.com/jaredbrewer/ChessCore), send
+    [ChessCore](https://github.com/jaredbrewer/ChessCore) (a private sibling
+    package; the link may not resolve for external readers), send
     `position.stockfishSafeFEN`.
 
 ## Search controls

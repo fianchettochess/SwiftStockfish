@@ -46,7 +46,8 @@ checksum-only no-op.
 ```swift
 import SwiftStockfish
 
-let dir = URL.applicationSupportDirectory.appending(path: "stockfish-nets")
+let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("stockfish-nets")
 try await StockfishNetworkLoader().ensure(in: dir) { progress in
     if let fraction = progress.fractionCompleted {
         print(progress.file, Int(fraction * 100), "%")
@@ -61,7 +62,7 @@ the user's device.
 
 ```swift
 // At runtime, with the nets already in your app bundle:
-let dir = Bundle.main.resourceURL!.appending(path: "stockfish-nets")
+let dir = Bundle.main.resourceURL!.appendingPathComponent("stockfish-nets")
 ```
 
 In **both** models the same requirement applies: the loader, or a known-good

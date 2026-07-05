@@ -28,13 +28,20 @@ export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 ./Tools/build-xcframework.sh
 ```
 
-Produces `Frameworks/Stockfish.xcframework` with three slices:
+Produces `Frameworks/Stockfish.xcframework` with ten slices:
 
 | Slice | Archs |
 |---|---|
 | `ios-arm64` | arm64 (device) |
 | `ios-arm64_x86_64-simulator` | arm64, x86_64 |
+| `ios-arm64_x86_64-maccatalyst` | arm64, x86_64 |
 | `macos-arm64_x86_64` | arm64, x86_64 |
+| `tvos-arm64` | arm64 (device) |
+| `tvos-arm64_x86_64-simulator` | arm64, x86_64 |
+| `watchos-arm64` | arm64 (device) |
+| `watchos-arm64_x86_64-simulator` | arm64, x86_64 |
+| `xros-arm64` | arm64 (device) |
+| `xros-arm64_x86_64-simulator` | arm64, x86_64 |
 
 Build flags mirror the in-target build exactly: `-std=gnu++20 -O3 -DNDEBUG`,
 the `StockfishConfig.h` prefix header (which defines `NNUE_EMBEDDING_OFF` plus
