@@ -1,15 +1,3 @@
-SwiftStockfish is licensed under the GNU General Public License, version 3.
-
-This package embeds the Stockfish chess engine (https://stockfishchess.org),
-which is itself licensed under the GNU General Public License, version 3.
-Because SwiftStockfish links Stockfish's source directly into its compiled
-output, the whole package is a GPL-3.0 artifact and is distributed under the
-terms below. See README.md ("Licensing") for details.
-
-The full text of the GNU General Public License, version 3, follows.
-
-----------------------------------------------------------------------------
-
                     GNU GENERAL PUBLIC LICENSE
                        Version 3, 29 June 2007
 
@@ -684,3 +672,4 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
