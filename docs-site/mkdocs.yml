@@ -2,6 +2,7 @@ site_name: SwiftStockfish
 site_description: A Swift Package Manager wrapper around the Stockfish chess engine — a clean StockfishEngine UCI API plus a version-aware NNUE network loader.
 site_author: Jared Brewer
 copyright: "SwiftStockfish — GPL-3.0, because it ships and links Stockfish."
+site_url: https://fianchettochess.app/docs/swiftstockfish/
 
 docs_dir: docs
 
