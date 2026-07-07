@@ -30,10 +30,12 @@ over an in-process queue, and the Swift surface is identical on every platform.
     first.
 
 !!! danger "One engine per process"
-    The bridge swaps the process-global `std::cin` / `std::cout` stream buffers so
-    Stockfish talks to in-process pipes. A second live `StockfishEngine` clobbers
-    the first's redirection. Create, use, and destroy one engine before making
-    another.
+    The bridge enforces the single-instance rule with a lifecycle gate: creating a
+    second `StockfishEngine(...)` **blocks the calling thread** until the first is
+    fully torn down. Never create or tear down an engine on the main thread/actor —
+    the create can block and `shutdown()` joins threads. Always `shutdown()` or
+    release the first engine before creating another; a leaked engine hangs the next
+    create forever.
 
 ## Quick start
 

@@ -10,9 +10,10 @@ public final class StockfishEngine: @unchecked Sendable {
     public init?(networkDirectory: URL)        // failable; nil on bridge/pipe failure
     public var output: AsyncStream<String>     // UCI lines, newline-stripped, in order
     public func send(_ command: String)        // any raw UCI command
+    public func shutdown()                     // explicit teardown — joins threads, releases the gate
     public func uci()                          // sends "uci"
     public func isReady()                      // sends "isready"
-    public func quit()                         // sends "quit"
+    public func quit()                         // sends "quit" (UCI command only)
 }
 ```
 
@@ -101,16 +102,35 @@ engine.send("go depth 18")
 ## Lifecycle
 
 A single output loop should own the stream for the engine's entire lifetime.
-Calling `quit()` asks the UCI loop to exit; teardown also happens
-automatically when the last reference is released (the `deinit` sends `quit`, joins
-the engine and reader threads, and finishes `output`).
+
+The explicit teardown method is `shutdown()`: it sends the bridge teardown, joins the
+engine and reader threads, frees the bridge, releases the process-wide lifecycle gate,
+and finishes `output`. It is idempotent and `deinit` calls it automatically, but
+prefer calling `shutdown()` yourself from a background context so the thread-join
+doesn't fall on the main actor:
 
 ```swift
-engine.quit()
+// Call from a background Task or off-main context — never from the main actor.
+engine.shutdown()
+// or: let all references to `engine` go out of scope (deinit calls shutdown()).
 ```
 
-Two constraints are mandatory: **one engine per process** and
-**valid nets before creation**. Violating either is process-fatal.
+`quit()` only sends the UCI `quit` string to the engine's input. It does **not** join
+threads, free the bridge, or release the lifecycle gate. Relying on `quit()` alone as
+teardown keeps the gate held and causes the next `StockfishEngine(...)` create to
+block indefinitely.
+
+Two constraints govern the engine lifecycle:
+
+- **Valid nets before creation** — if the required NNUE network is missing or invalid
+  when the engine is created, Stockfish calls `exit(EXIT_FAILURE)`, which terminates
+  the **entire host process** (not a catchable error). Always run the network loader
+  first.
+- **One engine per process** — the bridge enforces this with a lifecycle gate.
+  Creating a second engine **blocks the calling thread** until the first is fully
+  destroyed. This is a deadlock risk if done on the main thread/actor. Create and
+  tear down engines off-main, and always `shutdown()` or fully release an engine
+  before creating another.
 
 ## The low-level C bridge
 
@@ -125,7 +145,13 @@ SFEngineRef sf_create(const char *nnueDir);
 void        sf_set_output_callback(SFEngineRef engine, SFOutputCallback cb, const void *ctx);
 void        sf_send_command(SFEngineRef engine, const char *command);
 void        sf_destroy(SFEngineRef engine);
+bool        sf_wait_idle(int timeoutMs);
 ```
 
-`StockfishEngine` is a thin Swift layer over exactly these four functions,
-handling the callback-to-stream bridging on your behalf.
+`StockfishEngine` is a thin Swift layer over the first four functions,
+handling the callback-to-stream bridging on your behalf. `sf_wait_idle` is intended
+for custom-lifecycle consumers (e.g. test harnesses) that run engine lifecycles
+back-to-back: it blocks until the process-wide lifecycle gate is free (no engine
+alive), returning `true` if the gate freed within `timeoutMs` or `false` on timeout.
+This keeps the next engine's ready-timeout budget from silently absorbing the previous
+engine's teardown latency.
