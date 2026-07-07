@@ -81,9 +81,10 @@ public final class StockfishEngine: @unchecked Sendable {
     public init?(networkDirectory: URL)
     public var output: AsyncStream<String> { get }
     public func send(_ command: String)
+    public func shutdown()          // explicit teardown — joins threads, releases the gate
     public func uci()
     public func isReady()
-    public func quit()
+    public func quit()              // sends the UCI "quit" command only
 }
 ```
 

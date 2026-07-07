@@ -140,9 +140,22 @@ import SwiftStockfish
 
 ## Tear down
 
+Call `shutdown()` from a background context to explicitly destroy the engine — it
+joins the engine and reader threads, frees the bridge, and releases the process-wide
+lifecycle gate:
+
 ```swift
-engine.quit()      // ask the UCI loop to exit; teardown also happens on deinit
+// From a background Task or off-main context — never from the main actor.
+engine.shutdown()
+// or: let all references to `engine` go out of scope (deinit calls shutdown()).
 ```
 
-Only **one engine per process** is supported. Fully tear down an existing engine
-before creating another.
+`quit()` only sends the UCI `quit` string to the engine's input. It does **not** join
+threads, free the bridge, or release the lifecycle gate. Using `quit()` alone as
+teardown keeps the gate held and causes the next `StockfishEngine(...)` to block
+indefinitely.
+
+Only **one engine per process** is supported. The bridge enforces this with a
+lifecycle gate: creating a second engine **blocks the calling thread** until the first
+is fully torn down. Create and tear down engines off the main thread/actor, and always
+`shutdown()` or release the first engine before creating another.
