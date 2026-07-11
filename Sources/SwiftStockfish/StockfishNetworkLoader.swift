@@ -32,6 +32,39 @@ import CryptoKit
 import Crypto
 #endif
 
+/// Cancellation bridge for the callback-based URLSession API. Parent-task
+/// cancellation can race task creation, so the state and task reference share
+/// one lock.
+private final class StockfishDownloadTaskBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var task: URLSessionDownloadTask?
+    private var cancellationRequested = false
+
+    func installAndResume(_ task: URLSessionDownloadTask) {
+        lock.lock()
+        self.task = task
+        let shouldCancel = cancellationRequested
+        lock.unlock()
+
+        task.resume()
+        if shouldCancel { task.cancel() }
+    }
+
+    func cancel() {
+        lock.lock()
+        cancellationRequested = true
+        let task = self.task
+        lock.unlock()
+        task?.cancel()
+    }
+
+    var wasCancelled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return cancellationRequested
+    }
+}
+
 /// Ensures a directory holds exactly the NNUE networks the engine requires.
 ///
 /// ```swift
@@ -121,6 +154,9 @@ public struct StockfishNetworkLoader: Sendable {
     /// A present, valid net is never re-downloaded (idempotent). Downloads go
     /// to a temp file that is verified before replacing the destination, so a
     /// failed/aborted download never leaves a corrupt net behind.
+    /// Cancelling the calling task cancels the active URLSession transfer and
+    /// throws `CancellationError`; cancellation never advances to a fallback
+    /// source.
     ///
     /// - Parameters:
     ///   - directory: Where the nets should live.
@@ -138,14 +174,17 @@ public struct StockfishNetworkLoader: Sendable {
         } catch {
             throw LoaderError.fileSystem("could not create \(directory.path): \(error.localizedDescription)")
         }
+        try Task.checkCancellation()
 
         let requiredNames = Set(networks.map(\.filename))
 
         // 2. Prune any nn-*.nnue that isn't required.
         try pruneStaleNetworks(in: directory, keeping: requiredNames, fm: fm)
+        try Task.checkCancellation()
 
         // 3. Ensure each required net.
         for network in networks {
+            try Task.checkCancellation()
             guard !network.shaPrefix.isEmpty else {
                 throw LoaderError.invalidNetworkName(network.filename)
             }
@@ -154,6 +193,7 @@ public struct StockfishNetworkLoader: Sendable {
             // Keep it if present and valid.
             if fm.fileExists(atPath: destination.path),
                (try? verify(fileAt: destination, matches: network)) == true {
+                try Task.checkCancellation()
                 continue
             }
             // Remove an invalid/partial existing file before re-fetching.
@@ -211,12 +251,14 @@ public struct StockfishNetworkLoader: Sendable {
                     network, from: source, in: directory, progress: progress
                 )
                 defer { try? fm.removeItem(at: tempURL) }
+                try Task.checkCancellation()
 
                 // Verify before moving into place.
                 guard try verify(fileAt: tempURL, matches: network) else {
                     lastError = LoaderError.checksumMismatch(network.filename)
                     continue  // try the next source
                 }
+                try Task.checkCancellation()
 
                 // Atomic-ish move into place (replace if a stale file lingers).
                 if fm.fileExists(atPath: destination.path) {
@@ -230,6 +272,10 @@ public struct StockfishNetworkLoader: Sendable {
                     )
                 }
                 return  // success
+            } catch is CancellationError {
+                // Cancellation is a caller decision, not a source failure. Do
+                // not silently start the fallback URL after the task is gone.
+                throw CancellationError()
             } catch let error as LoaderError {
                 // Filesystem errors during install are not source-specific; bail.
                 throw error
@@ -275,11 +321,19 @@ public struct StockfishNetworkLoader: Sendable {
             ".\(network.filename).\(UUID().uuidString).part"
         )
 
-        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-            let task = session.downloadTask(with: url) { downloadedURL, response, error in
+        let taskBox = StockfishDownloadTaskBox()
+        try Task.checkCancellation()
+
+        return try await withTaskCancellationHandler(operation: {
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+                let task = session.downloadTask(with: url) { downloadedURL, response, error in
                 // Transport-level failure (no file produced).
                 if let error {
-                    continuation.resume(throwing: error)
+                    if taskBox.wasCancelled {
+                        continuation.resume(throwing: CancellationError())
+                    } else {
+                        continuation.resume(throwing: error)
+                    }
                     return
                 }
                 guard let downloadedURL else {
@@ -327,8 +381,11 @@ public struct StockfishNetworkLoader: Sendable {
                 // Resume with the STABLE url; `downloadedURL` is about to vanish.
                 continuation.resume(returning: tempURL)
             }
-            task.resume()
-        }
+                taskBox.installAndResume(task)
+            }
+        }, onCancel: {
+            taskBox.cancel()
+        })
     }
 
     // MARK: - Verification
