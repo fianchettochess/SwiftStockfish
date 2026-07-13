@@ -146,7 +146,9 @@ public struct StockfishNetworkLoader: Sendable {
     /// Steps, in order:
     ///   1. Ensure `directory` exists.
     ///   2. PRUNE: delete any `nn-*.nnue` in `directory` that is not in the
-    ///      required set (leftovers from a previous Stockfish version).
+    ///      required set (leftovers from a previous Stockfish version), and
+    ///      any orphaned `.nn-*.nnue.<UUID>.part` download staging file left
+    ///      by a crashed/killed earlier run.
     ///   3. For each required net: keep it if present AND it passes SHA
     ///      verification; otherwise download it (trying fishtest, then GitHub),
     ///      verify it, and move it atomically into place.
@@ -214,10 +216,11 @@ public struct StockfishNetworkLoader: Sendable {
     ) throws {
         let contents: [URL]
         do {
+            // No `.skipsHiddenFiles`: the download staging files this pruner
+            // must reclaim are dot-prefixed (hidden) by design — see below.
             contents = try fm.contentsOfDirectory(
                 at: directory,
-                includingPropertiesForKeys: nil,
-                options: [.skipsHiddenFiles]
+                includingPropertiesForKeys: nil
             )
         } catch {
             // A directory we just created should be enumerable; treat a failure
@@ -227,6 +230,22 @@ public struct StockfishNetworkLoader: Sendable {
 
         for url in contents {
             let name = url.lastPathComponent
+
+            // Orphaned download staging files: downloadToTemp stages in-flight
+            // bytes at `.nn-<hex>.nnue.<UUID>.part`; in-process cleanup is a
+            // `defer` in download(), so a crash/kill during the verify/install
+            // window (which includes SHA-256 hashing the ~100 MB big net)
+            // orphans the file forever — ~100 MB leaked per crash. Any `.part`
+            // present NOW is from a dead run: live staging files exist only
+            // during a download, and downloads start strictly after this prune
+            // within the same `ensure` call (concurrent `ensure` calls on one
+            // directory are not supported). The three-piece match is exact to
+            // the staging scheme so no unrelated hidden file is ever touched.
+            if name.hasPrefix(".nn-"), name.contains(".nnue."), name.hasSuffix(".part") {
+                try? fm.removeItem(at: url)
+                continue
+            }
+
             guard name.hasPrefix("nn-"), name.hasSuffix(".nnue") else { continue }
             if !requiredNames.contains(name) {
                 try? fm.removeItem(at: url)
