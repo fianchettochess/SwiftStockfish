@@ -143,22 +143,42 @@ public struct StockfishNetworkLoader: Sendable {
         case fileSystem(String)
     }
 
+    /// How bytes get from a source URL into the staging file. The transport
+    /// must write the full payload to `stagingURL` and return the transfer's
+    /// `URLResponse`; the caller owns the HTTP-status policy, verification,
+    /// and install. On task cancellation it must throw `CancellationError`
+    /// (the production URLSession transport maps NSURLErrorCancelled through
+    /// its task box; see `urlSessionTransport`).
+    ///
+    /// This is the loader's testability seam: tests inject an in-process
+    /// transport so download/cancellation paths run hermetically on EVERY
+    /// platform. The previous seam injected a `URLSession` whose configuration
+    /// routed through a stub `URLProtocol`, but swift-corelibs-foundation does
+    /// not reliably honor custom `URLProtocol` subclasses for download tasks
+    /// (the stub's served bytes never materialize as a downloaded file), so
+    /// those tests could not run hermetically on Linux.
+    typealias Transport = @Sendable (_ url: URL, _ stagingURL: URL) async throws -> URLResponse
+
     /// The networks this loader will ensure are present. Defaults to the
     /// engine's manifest, ``StockfishNetworks/required``.
     public let networks: [StockfishNetworks.Network]
 
-    private let session: URLSession
+    private let transport: Transport
 
     public init(networks: [StockfishNetworks.Network] = StockfishNetworks.required) {
-        self.init(networks: networks, session: URLSession(configuration: .ephemeral))
+        self.init(
+            networks: networks,
+            transport: Self.urlSessionTransport(URLSession(configuration: .ephemeral))
+        )
     }
 
-    /// Testability seam: inject a session (e.g. one whose configuration routes
-    /// through a stub `URLProtocol`) so the download/cancellation paths can be
-    /// exercised hermetically. Production callers use the public initializer.
-    init(networks: [StockfishNetworks.Network], session: URLSession) {
+    /// Testability seam: inject the transport that stages downloaded bytes so
+    /// the download/cancellation paths can be exercised hermetically (see
+    /// ``Transport``). Production callers use the public initializer, which
+    /// installs the real URLSession transport.
+    init(networks: [StockfishNetworks.Network], transport: @escaping Transport) {
         self.networks = networks
-        self.session = session
+        self.transport = transport
     }
 
     /// Make `directory` contain EXACTLY the required networks.
@@ -332,20 +352,11 @@ public struct StockfishNetworkLoader: Sendable {
     }
 
     /// Download `network` from `source` straight to a temp file in `directory`,
-    /// then return its URL (caller verifies + installs). Uses URLSession's
-    /// download-to-disk path — NOT the `bytes(from:)` async byte stream, which
-    /// would iterate ~100M times for the 100 MB big net.
-    ///
-    /// Implemented with `URLSession.downloadTask(with:completionHandler:)`
-    /// bridged through `withCheckedThrowingContinuation` so the floor stays at
-    /// iOS 13 / macOS 10.15 (the async `download(from:)` is iOS 15 / macOS 12).
-    ///
-    /// CRITICAL temp-file lifetime: `downloadTask`'s completion handler is
-    /// handed a URL in the system temp dir that the OS DELETES the instant the
-    /// handler returns. So the handler must SYNCHRONOUSLY relocate that file to
-    /// our own stable `.part` URL (alongside the destination) BEFORE resuming
-    /// the continuation, and resume with the stable URL — never the OS temp URL,
-    /// which would already be gone by the time the caller touches it.
+    /// then return its URL (caller verifies + installs). The transport stages
+    /// the raw bytes; THIS layer owns the shared policy — staging-file naming,
+    /// cancellation checks, the HTTP-status gate, cleanup on failure, and the
+    /// coarse progress callback — so every transport (production URLSession or
+    /// an injected test stub) gets identical semantics.
     private func downloadToTemp(
         _ network: StockfishNetworks.Network,
         from source: Source,
@@ -355,78 +366,110 @@ public struct StockfishNetworkLoader: Sendable {
         let url = source.url(for: network.filename)
 
         // Our stable destination for the bytes: a hidden `.part` alongside the
-        // final file so the later install move stays on one volume. Computed up
-        // front so the @Sendable completion handler can capture it as a plain
-        // value (keeping it Swift-6 concurrency-clean — no `self` capture).
+        // final file so the later install move stays on one volume.
         let tempURL = directory.appendingPathComponent(
             ".\(network.filename).\(UUID().uuidString).part"
         )
 
-        let taskBox = StockfishDownloadTaskBox()
         try Task.checkCancellation()
 
-        return try await withTaskCancellationHandler(operation: {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
-                let task = session.downloadTask(with: url) { downloadedURL, response, error in
-                // Transport-level failure (no file produced).
-                if let error {
-                    if taskBox.wasCancelled {
-                        continuation.resume(throwing: CancellationError())
-                    } else {
-                        continuation.resume(throwing: error)
+        let response: URLResponse
+        do {
+            response = try await transport(url, tempURL)
+        } catch {
+            // A failed transfer must never leak a staging file, whatever the
+            // transport did before throwing.
+            try? FileManager.default.removeItem(at: tempURL)
+            throw error
+        }
+
+        // HTTP status gate: non-2xx is a source failure (same throw as before
+        // the transport seam); drop any staged error body.
+        if let http = response as? HTTPURLResponse,
+           !(200...299).contains(http.statusCode) {
+            try? FileManager.default.removeItem(at: tempURL)
+            throw URLError(.badServerResponse)
+        }
+
+        // Coarse progress: without a URLSessionDownloadDelegate we can't
+        // surface byte-by-byte counts, so report completion only.
+        if let progress {
+            let total = response.expectedContentLength > 0
+                ? response.expectedContentLength
+                : Progress.unknownTotalBytes
+            progress(Progress(file: network.filename,
+                              bytesDownloaded: max(total, 0),
+                              totalBytes: total))
+        }
+
+        return tempURL
+    }
+
+    /// The production ``Transport``: URLSession's download-to-disk path — NOT
+    /// the `bytes(from:)` async byte stream, which would iterate ~100M times
+    /// for the 100 MB big net.
+    ///
+    /// Implemented with `URLSession.downloadTask(with:completionHandler:)`
+    /// bridged through `withCheckedThrowingContinuation` so the floor stays at
+    /// iOS 13 / macOS 10.15 (the async `download(from:)` is iOS 15 / macOS 12).
+    ///
+    /// CRITICAL temp-file lifetime: `downloadTask`'s completion handler is
+    /// handed a URL in the system temp dir that the OS DELETES the instant the
+    /// handler returns. So the handler must SYNCHRONOUSLY relocate that file to
+    /// the caller's stable `stagingURL` BEFORE resuming the continuation —
+    /// never hand back the OS temp URL, which would already be gone by the
+    /// time the caller touches it.
+    static func urlSessionTransport(_ session: URLSession) -> Transport {
+        { url, stagingURL in
+            let taskBox = StockfishDownloadTaskBox()
+            return try await withTaskCancellationHandler(operation: {
+                try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URLResponse, Error>) in
+                    let task = session.downloadTask(with: url) { downloadedURL, response, error in
+                        // Transport-level failure (no file produced). A cancel
+                        // surfaces here as NSURLErrorCancelled; report it as
+                        // CancellationError so the caller can tell a caller
+                        // decision apart from a source failure.
+                        if let error {
+                            if taskBox.wasCancelled {
+                                continuation.resume(throwing: CancellationError())
+                            } else {
+                                continuation.resume(throwing: error)
+                            }
+                            return
+                        }
+                        guard let downloadedURL, let response else {
+                            continuation.resume(throwing: URLError(.badServerResponse))
+                            return
+                        }
+
+                        // RELOCATE NOW, synchronously, before this handler
+                        // returns — the OS deletes `downloadedURL` as soon as
+                        // we return. Move first (fast, same-volume); fall back
+                        // to copy if the system temp dir is on a different
+                        // volume than the staging directory.
+                        let fm = FileManager.default
+                        try? fm.removeItem(at: stagingURL)
+                        do {
+                            do {
+                                try fm.moveItem(at: downloadedURL, to: stagingURL)
+                            } catch {
+                                try fm.copyItem(at: downloadedURL, to: stagingURL)
+                            }
+                        } catch {
+                            continuation.resume(throwing: LoaderError.fileSystem(
+                                "could not stage download for \(url.lastPathComponent): \(error.localizedDescription)"
+                            ))
+                            return
+                        }
+
+                        continuation.resume(returning: response)
                     }
-                    return
+                    taskBox.installAndResume(task)
                 }
-                guard let downloadedURL else {
-                    continuation.resume(throwing: URLError(.badServerResponse))
-                    return
-                }
-
-                // HTTP status check — same behavior as before: non-2xx → throw.
-                if let http = response as? HTTPURLResponse,
-                   !(200...299).contains(http.statusCode) {
-                    continuation.resume(throwing: URLError(.badServerResponse))
-                    return
-                }
-
-                // RELOCATE NOW, synchronously, before this handler returns —
-                // the OS deletes `downloadedURL` as soon as we return. Move
-                // first (fast, same-volume); fall back to copy if the system
-                // temp dir is on a different volume than `directory`.
-                let fm = FileManager.default
-                try? fm.removeItem(at: tempURL)
-                do {
-                    do {
-                        try fm.moveItem(at: downloadedURL, to: tempURL)
-                    } catch {
-                        try fm.copyItem(at: downloadedURL, to: tempURL)
-                    }
-                } catch {
-                    continuation.resume(throwing: LoaderError.fileSystem(
-                        "could not stage download for \(network.filename): \(error.localizedDescription)"
-                    ))
-                    return
-                }
-
-                // Coarse progress: without a URLSessionDownloadDelegate we can't
-                // surface byte-by-byte counts, so report completion only.
-                if let progress {
-                    let total = (response?.expectedContentLength ?? -1) > 0
-                        ? response!.expectedContentLength
-                        : Progress.unknownTotalBytes
-                    progress(Progress(file: network.filename,
-                                      bytesDownloaded: max(total, 0),
-                                      totalBytes: total))
-                }
-
-                // Resume with the STABLE url; `downloadedURL` is about to vanish.
-                continuation.resume(returning: tempURL)
-            }
-                taskBox.installAndResume(task)
-            }
-        }, onCancel: {
-            taskBox.cancel()
-        })
+            }, onCancel: {
+                taskBox.cancel()
+            })
+        }
     }
 
     // MARK: - Verification

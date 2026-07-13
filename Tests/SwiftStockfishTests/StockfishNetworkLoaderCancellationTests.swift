@@ -2,16 +2,23 @@
 //  StockfishNetworkLoaderCancellationTests.swift
 //  SwiftStockfishTests
 //
-//  Hermetic tests for the download-cancellation machinery
-//  (StockfishDownloadTaskBox + withTaskCancellationHandler wiring in
-//  StockfishNetworkLoader). NOTHING here touches the real network: the loader
-//  is built over a URLSession whose configuration routes every request through
-//  `StubbedNetProtocol`, an in-process URLProtocol that either hangs (so a
-//  cancel can land mid-flight) or serves canned bytes.
+//  Hermetic tests for the download-cancellation machinery and the staged-copy
+//  happy path in StockfishNetworkLoader. NOTHING here touches the real
+//  network: the loader is built over an injected `Transport` closure (the
+//  loader's internal test seam) that either parks until cancelled or writes
+//  canned bytes to the staging file.
+//
+//  Why a transport seam and not a stub URLProtocol: these tests originally
+//  injected a URLSession whose configuration routed through a custom
+//  `URLProtocol`. That is hermetic on Darwin, but swift-corelibs-foundation
+//  does not reliably honor custom URLProtocol subclasses for download tasks —
+//  on Linux the stub's served bytes never materialize as a downloaded file, so
+//  the request escapes to the REAL network and fails (-1011 badServerResponse
+//  from the sources' 404s). The transport seam is in-process on every platform.
 //
 //  Contracts under test (the "Harden Stockfish network loading" semantics):
-//    - Cancellation before the download path is reached: no request is ever
-//      issued and no staging file appears.
+//    - Cancellation before the download path is reached: the transport is
+//      never invoked and no staging file appears.
 //    - Cancellation mid-download: `ensure` throws CancellationError, never
 //      advances to the fallback source, and leaves no `.part` staging file.
 //    - The staged-copy happy path: a (stubbed) successful download is staged,
@@ -30,73 +37,8 @@ import Crypto
 #endif
 @testable import SwiftStockfish
 
-/// In-process URLProtocol stub. Static state is process-global, so the suite
-/// below is `.serialized`; the protocol is registered per-session (via
-/// `protocolClasses`), never globally, so other suites are unaffected.
-final class StubbedNetProtocol: URLProtocol {
-    enum Behavior {
-        /// Never respond. A task cancel surfaces as NSURLErrorCancelled.
-        case hang
-        /// Respond with the given body and status code, then finish.
-        case respond(Data, statusCode: Int)
-    }
-
-    private static let lock = NSLock()
-    nonisolated(unsafe) private static var _behavior: Behavior = .hang
-    nonisolated(unsafe) private static var _requestedURLs: [URL] = []
-
-    static func reset(behavior: Behavior) {
-        lock.lock()
-        defer { lock.unlock() }
-        _behavior = behavior
-        _requestedURLs = []
-    }
-
-    static var requestedURLs: [URL] {
-        lock.lock()
-        defer { lock.unlock() }
-        return _requestedURLs
-    }
-
-    private static func recordAndGetBehavior(_ url: URL?) -> Behavior {
-        lock.lock()
-        defer { lock.unlock() }
-        if let url { _requestedURLs.append(url) }
-        return _behavior
-    }
-
-    override class func canInit(with request: URLRequest) -> Bool { true }
-    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
-
-    override func startLoading() {
-        switch Self.recordAndGetBehavior(request.url) {
-        case .hang:
-            break
-        case .respond(let data, let statusCode):
-            guard let url = request.url,
-                  let response = HTTPURLResponse(
-                      url: url, statusCode: statusCode,
-                      httpVersion: "HTTP/1.1",
-                      headerFields: ["Content-Length": "\(data.count)"]
-                  )
-            else { return }
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: data)
-            client?.urlProtocolDidFinishLoading(self)
-        }
-    }
-
-    override func stopLoading() {}
-}
-
-@Suite("StockfishNetworkLoader cancellation (hermetic)", .serialized)
+@Suite("StockfishNetworkLoader cancellation (hermetic)")
 struct StockfishNetworkLoaderCancellationTests {
-
-    private func makeStubbedSession() -> URLSession {
-        let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubbedNetProtocol.self]
-        return URLSession(configuration: config)
-    }
 
     private func makeTempDir() -> URL {
         let dir = FileManager.default.temporaryDirectory
@@ -123,12 +65,30 @@ struct StockfishNetworkLoaderCancellationTests {
         StockfishNetworks.Network(filename: "nn-000000000000.nnue")
     }
 
-    @Test("a pre-cancelled ensure throws CancellationError before any request or staging file")
-    func preCancelledEnsureNeverTouchesNetworkOrDisk() async throws {
-        StubbedNetProtocol.reset(behavior: .hang)
+    /// A transport that records the call, then parks until the surrounding
+    /// task is cancelled — `Task.sleep` then throws CancellationError, exactly
+    /// as the production URLSession transport reports a cancelled transfer.
+    /// It never writes to the staging URL, like a transfer whose bytes never
+    /// finished arriving.
+    private func parkingTransport(spy: TransportSpy) -> StockfishNetworkLoader.Transport {
+        { url, stagingURL in
+            spy.record(url: url, stagingURL: stagingURL)
+            // Park (~1 hour). Reaching the sleep's end means a test hung for
+            // an hour without cancelling — fail loudly rather than pretend.
+            try await Task.sleep(nanoseconds: 3_600_000_000_000)
+            Issue.record("parking transport was never cancelled")
+            throw URLError(.badServerResponse)
+        }
+    }
+
+    @Test("a pre-cancelled ensure throws CancellationError before any transport call or staging file")
+    func preCancelledEnsureNeverTouchesTransportOrDisk() async throws {
+        let spy = TransportSpy()
         let dir = makeTempDir()
         defer { remove(dir) }
-        let loader = StockfishNetworkLoader(networks: [absentNet], session: makeStubbedSession())
+        let loader = StockfishNetworkLoader(
+            networks: [absentNet], transport: parkingTransport(spy: spy)
+        )
 
         let task = Task {
             // Deterministic ordering: enter `ensure` only after cancellation
@@ -139,32 +99,34 @@ struct StockfishNetworkLoaderCancellationTests {
         task.cancel()
 
         await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(StubbedNetProtocol.requestedURLs.isEmpty,
-                "no download may be issued after cancellation")
+        #expect(spy.requestedURLs.isEmpty,
+                "no download may be started after cancellation")
         #expect(partFiles(in: dir).isEmpty, "no staging file may be left behind")
     }
 
     @Test("cancelling mid-download throws CancellationError, leaves no staging file, and never advances to the fallback source")
     func cancelDuringDownloadCleansUpAndSkipsFallback() async throws {
-        StubbedNetProtocol.reset(behavior: .hang)
+        let spy = TransportSpy()
         let dir = makeTempDir()
         defer { remove(dir) }
         let net = absentNet
-        let loader = StockfishNetworkLoader(networks: [net], session: makeStubbedSession())
+        let loader = StockfishNetworkLoader(
+            networks: [net], transport: parkingTransport(spy: spy)
+        )
 
         let task = Task { try await loader.ensure(in: dir) }
 
-        // Wait until the first (fishtest) request is genuinely in flight.
+        // Wait until the first (fishtest) download is genuinely in flight.
         let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while StubbedNetProtocol.requestedURLs.isEmpty, ContinuousClock.now < deadline {
+        while spy.requestedURLs.isEmpty, ContinuousClock.now < deadline {
             try? await Task.sleep(nanoseconds: 5_000_000)
         }
-        #expect(StubbedNetProtocol.requestedURLs.count == 1, "the download should be in flight")
+        #expect(spy.requestedURLs.count == 1, "the download should be in flight")
 
         task.cancel()
 
         await #expect(throws: CancellationError.self) { try await task.value }
-        #expect(StubbedNetProtocol.requestedURLs.count == 1,
+        #expect(spy.requestedURLs == [StockfishNetworkLoader.Source.fishtest.url(for: net.filename)],
                 "cancellation must not advance to the fallback source")
         #expect(partFiles(in: dir).isEmpty, "no staging file may be left behind")
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(net.filename).path),
@@ -179,17 +141,45 @@ struct StockfishNetworkLoaderCancellationTests {
         )
         let net = StockfishNetworks.Network(filename: "nn-\(prefix12).nnue")
 
-        StubbedNetProtocol.reset(behavior: .respond(content, statusCode: 200))
+        let spy = TransportSpy()
         let dir = makeTempDir()
         defer { remove(dir) }
-        let loader = StockfishNetworkLoader(networks: [net], session: makeStubbedSession())
+        // A transport that "downloads" by writing the fixture bytes to the
+        // loader's staging URL and reporting a 200 — the success contract of
+        // the production URLSession transport, minus the network.
+        let transport: StockfishNetworkLoader.Transport = { url, stagingURL in
+            spy.record(url: url, stagingURL: stagingURL)
+            try content.write(to: stagingURL)
+            guard let response = HTTPURLResponse(
+                url: url, statusCode: 200, httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Length": "\(content.count)"]
+            ) else { throw URLError(.badServerResponse) }
+            return response
+        }
+        let loader = StockfishNetworkLoader(networks: [net], transport: transport)
 
         try await loader.ensure(in: dir)
 
+        // Staged: the loader handed the transport a hidden `.part` staging
+        // path inside the nets directory, named for this net.
+        #expect(spy.stagingURLs.count == 1)
+        if let staging = spy.stagingURLs.first {
+            #expect(staging.deletingLastPathComponent().path == dir.path,
+                    "staging must happen alongside the destination (same volume)")
+            #expect(staging.lastPathComponent.hasPrefix(".\(net.filename)."),
+                    "staging file must be the hidden .<net>.<UUID>.part scheme")
+            #expect(staging.lastPathComponent.hasSuffix(".part"))
+        }
+
+        // Verified + installed: the exact fixture bytes (whose SHA-256 prefix
+        // is the filename's) now live at the destination.
         let installed = dir.appendingPathComponent(net.filename)
         #expect(try Data(contentsOf: installed) == content, "the verified bytes must be installed")
+
+        // Staging cleaned + no fallback: the `.part` is gone and only the
+        // first source was ever asked.
         #expect(partFiles(in: dir).isEmpty, "the .part staging file must be removed after install")
-        #expect(StubbedNetProtocol.requestedURLs.count == 1,
+        #expect(spy.requestedURLs == [StockfishNetworkLoader.Source.fishtest.url(for: net.filename)],
                 "a first-source success must not touch the fallback")
     }
 }

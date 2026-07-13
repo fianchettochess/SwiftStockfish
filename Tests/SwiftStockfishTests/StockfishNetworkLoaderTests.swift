@@ -4,12 +4,12 @@
 //
 //  Tests for the loader's prune / verify logic, run entirely OFFLINE.
 //
-//  The trick that keeps these off the network: a SYNTHETIC network whose
-//  filename encodes the real SHA-256 prefix of a fixture we write to disk. The
-//  loader then sees that net as already-present-and-valid, so `ensure(in:)`
-//  never reaches its download path. If it DID try to download, the test would
-//  hit the network (the whole thing we're avoiding) — so each test asserts an
-//  outcome that's only reachable on the no-download path.
+//  Two tricks keep these off the network. Most tests use a SYNTHETIC network
+//  whose filename encodes the real SHA-256 prefix of a fixture we write to
+//  disk — the loader sees that net as already-present-and-valid, so
+//  `ensure(in:)` never reaches its download path. The one test that DOES need
+//  the download path injects a failing `Transport` (the loader's hermetic
+//  download seam), so no request can escape to the real network.
 //
 
 import Testing
@@ -165,19 +165,19 @@ struct StockfishNetworkLoaderTests {
 
     // Why this test EXPECTS an error: a required net that's present-but-corrupt
     // (its bytes don't match its filename's SHA prefix) is rejected by the
-    // loader's verify step, which then drops it and tries to (re)download. With
-    // no usable network — a CI/sandbox has none — every Source fails, so
-    // `ensure` throws. We deliberately include a SECOND required net that is
-    // simply ABSENT, which independently guarantees the download path is taken:
-    // even if the host running this test happens to have a network, the absent
-    // net's filename (`nn-000…000.nnue`) hashes to nothing real, so its
-    // download/verify can never succeed and `ensure` still throws. Either way
-    // the assertion — "a net that can't be made valid offline makes ensure
-    // throw" — holds without depending on network reachability.
-    @Test("a corrupt present net plus an unfetchable absent net make ensure throw")
+    // loader's verify step, which then drops it and tries to (re)download. The
+    // injected transport fails every attempt the way an unreachable network
+    // would, so the loader must try BOTH sources for the corrupt net and then
+    // throw `allSourcesFailed` — without ever reaching the second, absent net.
+    // (Before the loader grew its Transport seam, this test used the real
+    // `URLSession` and leaned on the live sources 404-ing synthetic filenames —
+    // a real-network round trip inside the "offline" suite. The seam makes the
+    // failure hermetic and lets us assert the source try-count exactly.)
+    @Test("a corrupt present net forces the download path; when every source fails, ensure throws")
     func corruptAndAbsentNetsThrow() async throws {
         let dir = makeTempDir()
         defer { remove(dir) }
+        let fm = FileManager.default
 
         // 1) A present-but-corrupt copy of the synthetic net: right filename,
         //    WRONG bytes → fails verification → loader wants to re-download it.
@@ -187,14 +187,30 @@ struct StockfishNetworkLoaderTests {
 
         // 2) An absent net whose 12-hex prefix is all zeros: a well-formed name
         //    (so it passes the shaPrefix guard) that no real file can ever hash
-        //    to. Its download/verify can never succeed, so `ensure` must throw
-        //    regardless of whether the host has a network at all.
+        //    to. The loader must throw on the corrupt net before reaching it.
         let absent = StockfishNetworks.Network(filename: "nn-000000000000.nnue")
 
-        let loader = StockfishNetworkLoader(networks: [corrupt, absent])
-        await #expect(throws: (any Error).self) {
+        // A transport that fails like a host with no usable network.
+        let spy = TransportSpy()
+        let transport: StockfishNetworkLoader.Transport = { url, stagingURL in
+            spy.record(url: url, stagingURL: stagingURL)
+            throw URLError(.notConnectedToInternet)
+        }
+
+        let loader = StockfishNetworkLoader(networks: [corrupt, absent], transport: transport)
+        await #expect(throws: StockfishNetworkLoader.LoaderError.self) {
             try await loader.ensure(in: dir)
         }
+
+        // Both sources were tried for the corrupt net, and the throw happened
+        // before the absent net's download could start.
+        #expect(spy.requestedURLs == [
+            StockfishNetworkLoader.Source.fishtest.url(for: corrupt.filename),
+            StockfishNetworkLoader.Source.githubNetworks.url(for: corrupt.filename),
+        ])
+        // The corrupt file was dropped ahead of the re-download, not kept.
+        #expect(!fm.fileExists(atPath: corruptURL.path),
+                "a corrupt net must be removed before re-fetching")
     }
 
     // MARK: - Progress.fractionCompleted (pure struct logic, no IO)
