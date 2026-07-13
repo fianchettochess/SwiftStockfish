@@ -11,6 +11,18 @@
 //  Run this BEFORE creating a `StockfishEngine`: Stockfish exits the host
 //  process on a missing/invalid net, so the directory must be correct first.
 //
+//  INTENTIONAL MIRROR of SwiftReckless's RecklessNetworkLoader.swift: the two
+//  packages must stay dependency-free of each other, so the download box, the
+//  downloadToTemp staging pipeline, and the pruning sweep are maintained as
+//  deliberate twins. CHANGE THEM TOGETHER — a hardening fix landed in one
+//  loader must be ported to the other in the same session (this rule exists
+//  because the two copies drifted once already). Intentional differences:
+//  Stockfish manages a manifest of several `nn-<12hex>.nnue` nets verified by
+//  SHA-256 *prefix* with a fishtest→GitHub source fallback; Reckless manages
+//  one `v<NN>-<8hex>.nnue` net verified against a pinned *full* SHA-256 from
+//  a single URL, so its LoaderError carries download context Stockfish
+//  expresses via allSourcesFailed.
+//
 
 import Foundation
 // On Linux, URLSession lives in the FoundationNetworking module (split out of
@@ -34,7 +46,8 @@ import Crypto
 
 /// Cancellation bridge for the callback-based URLSession API. Parent-task
 /// cancellation can race task creation, so the state and task reference share
-/// one lock.
+/// one lock. Deliberate twin of SwiftReckless's RecklessDownloadTaskBox —
+/// change them together (see the mirror note in the file header).
 private final class StockfishDownloadTaskBox: @unchecked Sendable {
     private let lock = NSLock()
     private var task: URLSessionDownloadTask?
@@ -216,6 +229,8 @@ public struct StockfishNetworkLoader: Sendable {
 
     // MARK: - Pruning
 
+    /// Deliberate twin of RecklessNetworkLoader.pruneStaleFiles — change them
+    /// together (see the mirror note in the file header).
     private func pruneStaleNetworks(
         in directory: URL,
         keeping requiredNames: Set<String>,
