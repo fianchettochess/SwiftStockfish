@@ -137,8 +137,15 @@ public struct StockfishNetworkLoader: Sendable {
     private let session: URLSession
 
     public init(networks: [StockfishNetworks.Network] = StockfishNetworks.required) {
+        self.init(networks: networks, session: URLSession(configuration: .ephemeral))
+    }
+
+    /// Testability seam: inject a session (e.g. one whose configuration routes
+    /// through a stub `URLProtocol`) so the download/cancellation paths can be
+    /// exercised hermetically. Production callers use the public initializer.
+    init(networks: [StockfishNetworks.Network], session: URLSession) {
         self.networks = networks
-        self.session = URLSession(configuration: .ephemeral)
+        self.session = session
     }
 
     /// Make `directory` contain EXACTLY the required networks.
