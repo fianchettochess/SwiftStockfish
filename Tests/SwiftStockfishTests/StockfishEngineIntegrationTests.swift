@@ -109,11 +109,24 @@ struct StockfishEngineIntegrationTests {
         engine.shutdown()           // second call must be a no-op, not a double sf_destroy
         engine.send("isready")      // must not touch the freed bridge
 
-        // The output stream finishes on shutdown — iterating it must end
-        // immediately rather than hanging or delivering new lines.
-        var post = 0
-        for await _ in engine.output { post += 1; if post > 1_000 { break } }
-        // (Buffered pre-shutdown lines may drain; the loop just must terminate.)
-        #expect(Bool(true))
+        // The output stream finishes on shutdown — iterating it must reach the
+        // stream's END (buffered pre-shutdown lines may drain first) rather
+        // than hanging or delivering lines indefinitely. Race a full drain
+        // against a timeout: a shutdown regression that leaves the stream open
+        // makes the timer win and the assertion fail.
+        let streamEnded = await withTaskGroup(of: Bool.self) { group in
+            group.addTask {
+                for await _ in engine.output {}
+                return true   // reached the stream's end
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                return false  // 10 s and the stream still hadn't finished
+            }
+            let first = await group.next() ?? false
+            group.cancelAll()
+            return first
+        }
+        #expect(streamEnded, "engine.output must finish after shutdown()")
     }
 }
