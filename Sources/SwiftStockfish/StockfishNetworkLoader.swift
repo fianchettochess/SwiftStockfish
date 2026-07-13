@@ -13,15 +13,17 @@
 //
 //  INTENTIONAL MIRROR of SwiftReckless's RecklessNetworkLoader.swift: the two
 //  packages must stay dependency-free of each other, so the download box, the
-//  downloadToTemp staging pipeline, and the pruning sweep are maintained as
-//  deliberate twins. CHANGE THEM TOGETHER — a hardening fix landed in one
-//  loader must be ported to the other in the same session (this rule exists
-//  because the two copies drifted once already). Intentional differences:
-//  Stockfish manages a manifest of several `nn-<12hex>.nnue` nets verified by
-//  SHA-256 *prefix* with a fishtest→GitHub source fallback; Reckless manages
-//  one `v<NN>-<8hex>.nnue` net verified against a pinned *full* SHA-256 from
-//  a single URL, so its LoaderError carries download context Stockfish
-//  expresses via allSourcesFailed.
+//  injected Transport seam (urlSessionTransport + the downloadToTemp staging
+//  policy), and the pruning sweep are maintained as deliberate twins. CHANGE
+//  THEM TOGETHER — a hardening fix landed in one loader must be ported to the
+//  other in the same session (this rule exists because the two copies drifted
+//  once already). Intentional differences: Stockfish manages a manifest of
+//  several `nn-<12hex>.nnue` nets verified by SHA-256 *prefix* with a
+//  fishtest→GitHub source fallback; Reckless manages one `v<NN>-<8hex>.nnue`
+//  net verified against a pinned *full* SHA-256 from a single URL, so its
+//  LoaderError carries download context Stockfish expresses via
+//  allSourcesFailed, and its Progress has no `file` field (one net — nothing
+//  to disambiguate).
 //
 
 import Foundation
