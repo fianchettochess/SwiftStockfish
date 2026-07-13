@@ -66,8 +66,8 @@ public final class StockfishEngine: @unchecked Sendable {
     ///   The bridge passes this to Stockfish as its binary directory so the
     ///   engine resolves the nets from here.
     ///
-    /// - Returns: `nil` if the bridge could not start the engine (e.g. it
-    ///   failed to create its pipes).
+    /// - Returns: `nil` if the bridge could not start the engine (e.g. its
+    ///   engine thread could not be created under resource exhaustion).
     public init?(networkDirectory: URL) {
         var continuation: AsyncStream<String>.Continuation!
         self._output = AsyncStream(bufferingPolicy: .unbounded) { cont in

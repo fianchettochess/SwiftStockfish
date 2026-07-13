@@ -28,6 +28,7 @@
     #include <pthread.h>
 #else
     #include <thread>
+    #include <system_error>  // std::system_error from a failed std::thread construction
 #endif
 
 // NOTE: this bridge swaps the process-global `std::cin` / `std::cout`
@@ -227,19 +228,53 @@ SFEngineRef sf_create(const char *nnueDir) {
     pthread_attr_setstacksize(&attr, 4 * 1024 * 1024);
     pthread_attr_set_qos_class_np(&attr, QOS_CLASS_UTILITY, 0);
 
-    pthread_create(&impl->engineThread, &attr, [](void *arg) -> void * {
+    int threadCreateResult = pthread_create(&impl->engineThread, &attr, [](void *arg) -> void * {
         runEngine(static_cast<SFEngineImpl *>(arg));
         return nullptr;
     }, impl);
 
     pthread_attr_destroy(&attr);
+
+    if (threadCreateResult != 0) {
+        // EAGAIN (thread exhaustion / memory pressure) etc.: no engine thread
+        // exists, so returning this ref would hand back a live-looking engine
+        // that can never produce output — callers would burn their full
+        // ready-timeout before noticing. Fail the create instead: NULL is the
+        // bridge's create-failure convention (StockfishEngine.init? surfaces
+        // it as nil). MUST release the lifecycle gate here, exactly as
+        // sf_destroy does — a failed create that kept gEngineLive set would
+        // leak the one-live-engine slot and hang every later sf_create.
+        delete impl;
+        {
+            std::lock_guard<std::mutex> lock(gLifecycleMutex);
+            gEngineLive = false;
+        }
+        gLifecycleCV.notify_one();
+        return nullptr;
+    }
 #else
     // Non-Apple: a plain std::thread engine thread. Stockfish's own internals
     // already use std::thread off-Apple (thread_win32_osx.h), and there is no
     // portable QoS equivalent, so we simply spawn the loop. Output is
     // synchronous via the callback streambuf — there is no reader thread on any
     // platform.
-    impl->engineThread = std::thread([impl]() { runEngine(impl); });
+    //
+    // std::thread's constructor throws std::system_error on resource
+    // exhaustion; uncaught it would propagate out of this extern "C" function
+    // and std::terminate the process. Convert it to the bridge's NULL-return
+    // failure convention instead, releasing the lifecycle gate exactly as
+    // sf_destroy does so a failed create cannot leak the one-live-engine slot.
+    try {
+        impl->engineThread = std::thread([impl]() { runEngine(impl); });
+    } catch (const std::system_error &) {
+        delete impl;
+        {
+            std::lock_guard<std::mutex> lock(gLifecycleMutex);
+            gEngineLive = false;
+        }
+        gLifecycleCV.notify_one();
+        return nullptr;
+    }
 #endif
 
     return (SFEngineRef)impl;
