@@ -24,7 +24,7 @@ details.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/jaredbrewer/SwiftStockfish", from: "18.0.0"),
+    .package(url: "https://github.com/fianchettochess/SwiftStockfish", from: "18.0.0"),
 ],
 targets: [
     .target(
