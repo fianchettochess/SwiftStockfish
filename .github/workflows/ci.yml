@@ -1,31 +1,32 @@
 name: CI
 
-# Build + test on the two arms of the conditional manifest (see Package.swift):
+# Build + test on both arms of the conditional manifest (see Package.swift):
 #
-#   * linux-x86_64 — the SOURCE arm. Package.swift's `#else` branch compiles
-#     CStockfish (the bundled engine sources) from scratch with NO `-m…` codegen
-#     flags, because adding `.unsafeFlags` to the manifest would break remote
-#     version-pinning. StockfishConfig.h therefore enables only USE_SSE2 on a
-#     bare x86_64 build (the higher SSE/AVX tiers are gated on the compiler's own
-#     `__SSSE3__`/`__SSE4_1__`/`__POPCNT__`/`__AVX2__` predefines, which a no-flag
-#     build does not set). This job is the regression guard for that gate: a
-#     no-flag x86_64 source build must COMPILE (generic SSE2 NNUE path).
+#   * linux-x86_64 — the SOURCE arm (GitHub-hosted ubuntu-latest).
+#     Compiles CStockfish from scratch with no SIMD flags (USE_SSE2 only
+#     via StockfishConfig.h); guards the generic source path.  No
+#     SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE override is needed — linux sets
+#     useBinaryEngine = false automatically.
 #
-#   * macos — the Apple arm. Package.swift's `#if os(macOS)…` branch links the
-#     prebuilt Stockfish.xcframework via a path-based binaryTarget and compiles
-#     only the small CStockfish bridge. This job guards the Apple side of the
-#     conditional manifest.
+#   * macos-self-hosted — the APPLE (binary) arm (self-hosted Intel Mac Pro).
+#     Links the prebuilt Stockfish.xcframework committed under Frameworks/.
+#     No FORCE_SOURCE override.  The xcframework's macos-arm64_x86_64 slice
+#     covers x86_64 (Intel).  The gated engine-integration suite (suite 3,
+#     which needs the NNUE net files — gitignored, ~107 MB) is NOT run here;
+#     it is correctly skipped when SWIFTSTOCKFISH_INTEGRATION is unset.
 #
-# The gated engine-integration suite (which needs the NNUE network files, not in
-# the repo) is intentionally NOT run here — these jobs build + run only the
-# always-available unit tests. arm64-Linux is verified locally via Docker
-# (linux/arm64 emulation); no hosted arm64-Linux runner is wired here.
+# GATED OFF — auto-triggers are commented out below.  Nothing runs on
+# push or pull_request until you opt in.  To run immediately:
+#   GitHub → Actions → CI → "Run workflow"
+#
+# To enable on-branch CI uncomment the push / pull_request block below.
 
 on:
-  push:
-  pull_request:
+  workflow_dispatch:
+  # Uncomment to enable on-branch CI:
+  # push:
+  # pull_request:
 
-# Cancel superseded runs on the same ref to save CI minutes.
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -42,10 +43,16 @@ jobs:
       - name: swift test
         run: swift test
 
-  macos:
-    name: macOS (Apple binaryTarget)
-    runs-on: macos-latest
+  macos-self-hosted:
+    name: macOS — self-hosted (Intel Mac Pro, binary arm)
+    runs-on: [self-hosted, macOS]
     steps:
       - uses: actions/checkout@v4
       - name: swift build
         run: swift build
+      - name: swift test
+        # Suite 1 (logic) and Suite 2 (filesystem) run unconditionally.
+        # Suite 3 (live engine integration) requires SWIFTSTOCKFISH_INTEGRATION
+        # to be set AND the NNUE net files (~107 MB, gitignored) to be present;
+        # it is skipped automatically when those preconditions are absent.
+        run: swift test
