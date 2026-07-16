@@ -7,3 +7,5 @@ Package.resolved
 # Python bytecode from .github/scripts helpers — never commit build artifacts.
 __pycache__/
 *.pyc
+Frameworks/*.xcframework
+Stockfish.xcframework.zip
