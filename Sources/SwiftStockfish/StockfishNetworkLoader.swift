@@ -480,8 +480,12 @@ public struct StockfishNetworkLoader: Sendable {
     /// compare against the filename's encoded prefix. This is the same check
     /// Stockfish itself performs on its nets.
     private func verify(fileAt url: URL, matches network: StockfishNetworks.Network) throws -> Bool {
-        let expected = network.shaPrefix
-        guard !expected.isEmpty else {
+        // Prefer the full pinned SHA-256; fall back to the filename's 12-hex
+        // prefix only when a Network was constructed without a full hash (test
+        // fixtures). A file must match the WHOLE digest to be accepted.
+        let expectedFull = network.sha256
+        let expectedPrefix = network.shaPrefix
+        guard !expectedFull.isEmpty || !expectedPrefix.isEmpty else {
             throw LoaderError.invalidNetworkName(network.filename)
         }
 
@@ -502,7 +506,8 @@ public struct StockfishNetworkLoader: Sendable {
         }
         let digest = hasher.finalize()
         let hex = digest.map { String(format: "%02x", $0) }.joined()
-        return hex.hasPrefix(expected)
+        if !expectedFull.isEmpty { return hex == expectedFull }
+        return hex.hasPrefix(expectedPrefix)
     }
 
     /// A non-downloading pre-flight: `true` iff every required network is present
