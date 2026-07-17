@@ -10,6 +10,17 @@ extern "C" {
 typedef const void *SFEngineRef;
 typedef void (*SFOutputCallback)(const char *line, const void *context);
 
+// CONTRACT for direct CStockfish consumers (the Swift `StockfishEngine` wrapper
+// already upholds all of this internally, so Swift API users need not care):
+//   * Only ONE engine may be live per process; `sf_create` blocks until any
+//     prior engine is destroyed.
+//   * Call `sf_destroy` EXACTLY ONCE per successful `sf_create`. A second
+//     `sf_destroy`, or any `sf_send_command` / `sf_set_output_callback` after
+//     `sf_destroy`, is undefined behaviour (use-after-free) — the returned
+//     `SFEngineRef` is dangling once destroyed.
+//   * Do not call these concurrently on the same engine; serialize them.
+//   * `sf_send_command(engine, NULL)` and calls with a NULL `engine` are no-ops
+//     (defensively guarded); every other misuse above is caller responsibility.
 SFEngineRef sf_create(const char *nnueDir);
 void sf_destroy(SFEngineRef engine);
 void sf_set_output_callback(SFEngineRef engine, SFOutputCallback callback, const void *context);

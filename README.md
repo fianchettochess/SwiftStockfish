@@ -373,8 +373,10 @@ distributable GPL component.
   `#include "bitboard.h"`) to match the new `stockfish/` layout, resolved via the
   `.headerSearchPath("stockfish")`. Noted inline in `StockfishBridge.cpp`.
 - **No `COPYING` file was copied** — Fianchetto's Stockfish `src/` did not
-  contain one. `LICENSE` is the canonical GPL-3.0 text with a header noting the
-  package embeds Stockfish.
+  contain one. `LICENSE` is the **verbatim, unmodified** GPL-3.0 text (so GitHub
+  and the Swift Package Index detect the license correctly); the Stockfish
+  attribution and the GPL §5(a) modification notices live in the source files
+  and this README, not in `LICENSE`.
 - **Build environment note:** `swift build` fails on an SMB network mount (the
   index store / module cache rely on atomic `rename()` semantics SMB does not
   provide). Build on a local disk. This package lives on the local APFS volume

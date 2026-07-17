@@ -45,7 +45,7 @@ public final class StockfishEngine: @unchecked Sendable {
     private var isShutdown = false
 
     // The output stream and its continuation. The continuation is fed from the
-    // C callback (which may fire on the bridge's reader thread), so all access
+    // C callback (which fires synchronously on the bridge's engine thread), so access
     // goes through `AsyncStream.Continuation`, which is itself Sendable / thread
     // safe.
     private let _output: AsyncStream<String>
@@ -75,6 +75,17 @@ public final class StockfishEngine: @unchecked Sendable {
         }
         self.continuation = continuation
 
+        // C1 — pre-flight the NNUE nets before creating the engine. A missing or
+        // corrupt net would let `sf_create` succeed and `uci`/`isready` both
+        // report success, then the engine would call `exit(EXIT_FAILURE)` inside
+        // `verify_networks()` on the first `go`/`ucinewgame` — an UNCATCHABLE host
+        // process kill. Fail the initializer instead so the caller gets a nil it
+        // can handle (e.g. re-provision the net via StockfishNetworkLoader).
+        guard StockfishNetworkLoader().requiredNetworksSatisfied(in: networkDirectory) else {
+            continuation.finish()
+            return nil
+        }
+
         guard let ref = networkDirectory.path.withCString({ sf_create($0) }) else {
             // No engine was created, so finish the (empty) stream.
             continuation.finish()
@@ -100,7 +111,7 @@ public final class StockfishEngine: @unchecked Sendable {
     }
 
     /// Explicitly destroy the engine: sends the bridge teardown (`quit`),
-    /// joins the engine + reader threads, frees the bridge, and finishes
+    /// joins the engine thread, frees the bridge, and finishes
     /// ``output``. Idempotent — safe to call more than once, and `deinit`
     /// falls through to it. Prefer calling this yourself from a background
     /// context: it JOINS threads (can take a moment while a search winds
@@ -111,7 +122,7 @@ public final class StockfishEngine: @unchecked Sendable {
         defer { teardownLock.unlock() }
         guard !isShutdown else { return }
         isShutdown = true
-        // sf_destroy sends "quit", joins the engine + reader threads, frees
+        // sf_destroy sends "quit", joins the engine thread, frees
         // the bridge, and releases the process-wide lifecycle gate. After it
         // returns no further callbacks can fire.
         sf_destroy(engine)

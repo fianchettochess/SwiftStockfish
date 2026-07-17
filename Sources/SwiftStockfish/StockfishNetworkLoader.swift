@@ -504,4 +504,22 @@ public struct StockfishNetworkLoader: Sendable {
         let hex = digest.map { String(format: "%02x", $0) }.joined()
         return hex.hasPrefix(expected)
     }
+
+    /// A non-downloading pre-flight: `true` iff every required network is present
+    /// in `directory` AND passes SHA verification.
+    ///
+    /// `StockfishEngine.init?` calls this before creating the engine. Without it,
+    /// a missing or corrupt net lets `sf_create` succeed and `uci`/`isready` both
+    /// report success, then the engine calls `exit(EXIT_FAILURE)` inside
+    /// `verify_networks()` on the first `go` / `ucinewgame` — terminating the host
+    /// process with no Swift error to catch. This converts that into a clean nil.
+    public func requiredNetworksSatisfied(in directory: URL) -> Bool {
+        for network in networks {
+            let url = directory.appendingPathComponent(network.filename)
+            guard (try? verify(fileAt: url, matches: network)) == true else {
+                return false
+            }
+        }
+        return true
+    }
 }
