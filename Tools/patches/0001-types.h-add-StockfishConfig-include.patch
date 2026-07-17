@@ -1,0 +1,39 @@
+--- a/types.h
++++ b/types.h
+@@ -18,6 +18,36 @@
+ 
+ #ifndef TYPES_H_INCLUDED
+     #define TYPES_H_INCLUDED
++
++/*
++  Modified for SwiftStockfish, 2026-06-24 (GPLv3 §5(a) modification notice).
++
++  Change relative to upstream Stockfish sf_18: added a single
++  `#include "StockfishConfig.h"` at the very top of the most foundational
++  engine header. `types.h` is included (transitively) by every SIMD- and
++  NNUE-consuming translation unit — including `nnue/network.cpp`, which gates
++  its `.incbin` of the NNUE nets on `NNUE_EMBEDDING_OFF`, and the
++  vectorised nnue translation units, which select their kernels on
++  `USE_NEON` / `USE_SSE...`.
++
++  WHY HERE (and not a compiler flag): the prebuilt Apple xcframework
++  force-includes StockfishConfig.h via `-include` in build-xcframework.sh, but
++  the publishable SwiftPM source arm (the non-Apple `#else` manifest target)
++  carries NO `.unsafeFlags`, so it cannot force-include anything. A plain
++  source `#include` delivers the SAME config (NNUE_EMBEDDING_OFF + the
++  arch-self-selected SIMD set) to the source build with zero compiler flags,
++  keeping the package version-pinnable as a remote dependency.
++
++  IDEMPOTENT WITH THE APPLE PATH: StockfishConfig.h has its own include guard
++  (STOCKFISH_CONFIG_H), so when build-xcframework.sh ALSO force-includes it as a
++  prefix header the second inclusion here is a no-op. The Apple build's
++  behaviour is therefore unchanged. The include is placed BEFORE the first
++  consumption of USE_POPCNT/USE_PEXT/IS_64BIT further down this header.
++
++  This is the second functional local patch to the vendored engine (the first
++  being the dotprod target attribute in nnue/simd.h).
++*/
++    #include "StockfishConfig.h"
+ 
+ // When compiling with provided Makefile (e.g. for Linux and OSX), configuration
+ // is done automatically. To get started type 'make help'.
