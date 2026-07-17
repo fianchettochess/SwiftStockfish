@@ -97,15 +97,31 @@ engine is created, because Stockfish exits the process on a missing net.
 
 ## Upgrade workflow (e.g. 18 → 18.1)
 
-A Stockfish upgrade is a clean, mostly-automatic swap:
+A Stockfish upgrade is a clean, mostly-automatic swap. The daily
+[`Upstream watch`](.github/workflows/upstream-watch.yml) workflow opens a
+tracking issue when a new stable `sf_*` release is available (it compares
+upstream against [`.upstream-version`](.upstream-version)).
 
-1. Replace the engine source in `Sources/CStockfish/stockfish/` with the new
-   version's `src/` tree (these headers feed the bridge and the `.cpp` remain for
-   GPL source availability; re-copy `StockfishConfig.h` / the bridge if they
-   changed upstream), then **rebuild `Frameworks/Stockfish.xcframework`** from the
-   same source with [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh)
-   (the [`Release binary`](#releasing) workflow runs this same script in CI). The
-   binary is what actually links — the kept `.cpp` are not compiled here.
+1. Re-vendor the engine source and re-apply our local patches in one step:
+
+   ```sh
+   Tools/update-stockfish.sh sf_18.1
+   ```
+
+   This fetches upstream `official-stockfish/Stockfish` at the tag, syncs it into
+   `Sources/CStockfish/stockfish/` (dropping `Makefile`/`main.cpp`), re-applies
+   the patches under [`Tools/patches/`](Tools/patches/), and updates
+   `.upstream-version`. **The source is committed, not fetched at build time** —
+   the non-Apple SwiftPM arm compiles it directly and GPL-3.0 requires shipping
+   it, and SwiftPM cannot fetch/compile external source during a build. If a
+   patch no longer applies (upstream moved the code it touches), the script fails
+   loudly — rebase that `.patch` and re-run.
+
+   Then **rebuild `Frameworks/Stockfish.xcframework`** with
+   [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh) (the
+   [`Release binary`](#releasing) workflow runs the same script in CI). The
+   binary is what actually links on Apple platforms — the kept `.cpp` are not
+   compiled there.
 2. Bump `StockfishNetworks.stockfishVersion`.
 3. Update `StockfishNetworks.required` with the new version's net filenames.
    The real filenames live in the engine's `evaluate.h`
