@@ -323,7 +323,11 @@ void sf_set_output_callback(SFEngineRef ref, SFOutputCallback callback, const vo
 }
 
 void sf_send_command(SFEngineRef ref, const char *command) {
-    if (!ref) return;
+    // Guard the raw C ABI: a NULL `command` would make `std::string(command)`
+    // undefined behaviour (a crash); a NULL `ref` is a no-op. The Swift
+    // StockfishEngine wrapper never trips these, but a direct CStockfish consumer
+    // can — see the exactly-once / no-concurrent-use contract in StockfishBridge.h.
+    if (!ref || !command) return;
     auto impl = (SFEngineImpl *)ref;
     std::lock_guard<std::mutex> lock(impl->writeMutex);
     impl->inputQueue.push(std::string(command));
