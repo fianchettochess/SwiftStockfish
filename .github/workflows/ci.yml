@@ -15,17 +15,18 @@ name: CI
 #     which needs the NNUE net files — gitignored, ~107 MB) is NOT run here;
 #     it is correctly skipped when SWIFTSTOCKFISH_INTEGRATION is unset.
 #
-# GATED OFF — auto-triggers are commented out below.  Nothing runs on
-# push or pull_request until you opt in.  To run immediately:
-#   GitHub → Actions → CI → "Run workflow"
-#
-# To enable on-branch CI uncomment the push / pull_request block below.
+# Runs on every push to `main`, every PR, and every version tag. The live-engine
+# integration suite (a ~107 MB net download + a real engine) runs ONLY on tagged
+# releases, on the self-hosted runner — see the macOS job below — so a plain PR
+# stays fast.
 
 on:
   workflow_dispatch:
-  # Uncomment to enable on-branch CI:
-  # push:
-  # pull_request:
+  push:
+    branches: [main]
+    tags:
+      - '*.*.*'
+  pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -52,7 +53,14 @@ jobs:
         run: swift build
       - name: swift test
         # Suite 1 (logic) and Suite 2 (filesystem) run unconditionally.
-        # Suite 3 (live engine integration) requires SWIFTSTOCKFISH_INTEGRATION
-        # to be set AND the NNUE net files (~107 MB, gitignored) to be present;
-        # it is skipped automatically when those preconditions are absent.
+        # Suite 3 (live engine integration) stays skipped here — it needs
+        # SWIFTSTOCKFISH_INTEGRATION set (see the tagged-release step below).
+        run: swift test
+      - name: swift test — live engine integration (tagged releases only)
+        # On a version tag, run the full suite including Suite 3: it downloads
+        # the real nets via StockfishNetworkLoader.ensure(in:) and drives a live
+        # engine. Confined to tags so PRs/pushes don't pay the 107 MB download.
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          SWIFTSTOCKFISH_INTEGRATION: '1'
         run: swift test

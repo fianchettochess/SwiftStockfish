@@ -25,15 +25,22 @@ public enum StockfishNetworks {
     /// The exact NNUE networks the bundled engine requires.
     ///
     /// Filenames follow Stockfish's own scheme: `nn-<first 12 hex of the file's
-    /// SHA-256>.nnue`. The 12-hex prefix is therefore a self-describing
-    /// checksum, which is exactly what the loader verifies after a download.
+    /// SHA-256>.nnue`. We additionally pin each net's FULL SHA-256 below, and the
+    /// loader verifies the whole digest after a download — not just the 12-hex
+    /// filename prefix — so a file forged to share the prefix (a 2^48
+    /// second-preimage) cannot pass.
     ///
-    /// These were read from the bundled engine's `evaluate.h`
-    /// (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`). Bump them
-    /// together with the engine source on a version upgrade.
+    /// The filenames were read from the bundled engine's `evaluate.h`
+    /// (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`); the hashes are the
+    /// SHA-256 of those exact nets. Bump both together with the engine source on
+    /// a version upgrade.
     public static let required: [Network] = [
-        Network(filename: "nn-c288c895ea92.nnue"),  // big   (EvalFileDefaultNameBig)
-        Network(filename: "nn-37f18f62d772.nnue"),  // small (EvalFileDefaultNameSmall)
+        // big (EvalFileDefaultNameBig)
+        Network(filename: "nn-c288c895ea92.nnue",
+                sha256: "c288c895ea924429ea9092e3f36b2b3c1f00f2a3a4c759ff7e57e79e3b43e4a7"),
+        // small (EvalFileDefaultNameSmall)
+        Network(filename: "nn-37f18f62d772.nnue",
+                sha256: "37f18f62d772f3107e1d6aaca3898c130c3c86f2ab63e6555fbbca20635a899d"),
     ]
 
     /// A single NNUE network, identified by its Stockfish filename.
@@ -41,8 +48,15 @@ public enum StockfishNetworks {
         /// e.g. `"nn-c288c895ea92.nnue"`.
         public let filename: String
 
-        public init(filename: String) {
+        /// The full 64-hex SHA-256 of the net, pinned in-source. The loader
+        /// verifies the WHOLE digest, so a forged file that only matches the
+        /// filename's 12-hex prefix cannot pass. An empty string falls back to
+        /// prefix-only verification (used by synthetic test fixtures).
+        public let sha256: String
+
+        public init(filename: String, sha256: String = "") {
             self.filename = filename
+            self.sha256 = sha256.lowercased()
         }
 
         /// The 12-hex SHA-256 prefix encoded in the filename — i.e. the text
