@@ -38,9 +38,6 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
 .package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.9")
 ```
 
-The repo is private until release, so local-path sibling checkouts
-(`.package(path: "../SwiftStockfish")`) are the working form today.
-
 ## Quick start
 
 ```swift
