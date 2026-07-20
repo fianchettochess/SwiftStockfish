@@ -190,9 +190,11 @@ automatically when the last reference is released.
 engine.quit()      // ask the UCI loop to exit; teardown also happens on release
 ```
 
-> Warning: **One engine per process.** Fully tear one ``StockfishEngine`` down
-> before creating another — the bridge swaps the process-global stream buffers,
-> so a second live engine clobbers the first's redirection.
+> Warning: **One engine per process.** The bridge enforces the single-instance
+> rule with a lifecycle gate: creating a second ``StockfishEngine`` blocks the
+> calling thread until the first is fully torn down. Create and tear down engines
+> off the main thread/actor, and always shut one engine down before creating
+> another — a leaked engine hangs the next create forever.
 
 ## See Also
 

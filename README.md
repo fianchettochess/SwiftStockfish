@@ -15,7 +15,7 @@ target exposes a clean Swift API (`StockfishEngine`) plus a version-aware NNUE
 network manager (`StockfishNetworkLoader`).
 
 This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
-[Licensing](#licensing).
+[License](#license).
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
 - Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
@@ -31,6 +31,15 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
   either way, and the bridge carries **no `.unsafeFlags`**, so the package stays
   version-publishable. On `main` the binaryTarget is `path:`-referenced; each
   release **tag** flips it to a checksummed **`url:`** — see [Releasing](#releasing).
+
+## Installation
+
+```swift
+.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.9")
+```
+
+The repo is private until release, so local-path sibling checkouts
+(`.package(path: "../SwiftStockfish")`) are the working form today.
 
 ## Quick start
 
@@ -62,17 +71,24 @@ engine.send("position startpos")
 engine.send("go depth 20")
 ```
 
-> ⚠️ **Run the loader before creating the engine.** Stockfish loads its NNUE
-> evaluation network during initialization and calls `exit(EXIT_FAILURE)` if the
-> net is missing or invalid. That terminates the **entire host process** — it is
-> not a Swift error you can catch. `StockfishNetworkLoader.ensure(in:)`
-> guarantees the directory holds exactly the valid required nets, so always run
-> it (and `await` it) before `StockfishEngine(networkDirectory:)`.
+> ⚠️ **Run the loader before creating the engine.** Stockfish verifies its NNUE
+> nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if one is
+> missing or invalid — terminating the **entire host process**, not a catchable
+> Swift error. `StockfishEngine.init?` pre-flights the nets and returns `nil`
+> instead of letting that happen, but the pre-flight can only pass if the
+> directory is already correct — so always run
+> `StockfishNetworkLoader.ensure(in:)` (and `await` it) before
+> `StockfishEngine(networkDirectory:)`. Raw `CStockfish` consumers get no
+> pre-flight.
 
 > ⚠️ **One engine per process.** The bridge swaps the process-global
-> `std::cin`/`std::cout` stream buffers so Stockfish talks to in-process pipes. A
-> second live `StockfishEngine` clobbers the first's redirection. Create, use,
-> and destroy one engine before making another.
+> `std::cin`/`std::cout` stream buffers so Stockfish talks to an in-memory
+> command queue and output callback. The bridge enforces the single-instance
+> rule with a lifecycle gate: creating a second `StockfishEngine` **blocks the
+> calling thread** until the first is fully torn down — so never create or tear
+> down an engine on the main thread/actor, always `shutdown()` (or release) one
+> engine before creating another, and note that a leaked engine hangs the next
+> create forever.
 
 ## The two NNUE consumption models
 
@@ -94,7 +110,8 @@ Subsequent launches find the nets already present and valid, so `ensure` is a
 fast no-op (it verifies checksums, downloads nothing).
 
 In **both** models the rule is the same: the loader MUST complete before the
-engine is created, because Stockfish exits the process on a missing net.
+engine is created — a missing or invalid net fails `StockfishEngine.init?`
+(and raw `CStockfish` consumers risk the process-killing `exit`).
 
 ## Upgrade workflow (e.g. 18 → 18.1)
 
@@ -127,8 +144,12 @@ upstream against [`.upstream-version`](.upstream-version)).
 3. Update `StockfishNetworks.required` with the new version's net filenames.
    The real filenames live in the engine's `evaluate.h`
    (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`); copy them verbatim —
-   the 12-hex prefix in each filename is the net's own SHA-256 checksum, which
-   the loader verifies.
+   then compute each new net's full SHA-256 (`shasum -a 256 nn-*.nnue`) and pin
+   it as the `sha256:` of the corresponding entry in
+   `StockfishNetworks.required`. The loader verifies the FULL pinned digest
+   after every download (the filename's 12-hex prefix is only a fallback for
+   test fixtures without a pinned hash), so a net that merely matches the
+   filename prefix cannot pass.
 
 On the next `ensure(in:)`, the loader **downloads the new nets and prunes the
 old ones** (it deletes any `nn-*.nnue` in the directory that isn't in the
@@ -190,8 +211,10 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
 
 Apple **simulator** x86_64 slices carry AVX2; device slices are arm64/NEON. **CI**
-(`.github/workflows/ci.yml`) builds the Linux x86_64 source arm and the macOS
-binaryTarget arm on every push.
+(`.github/workflows/ci.yml`) builds and tests the Linux x86_64 source arm and
+the macOS binaryTarget arm (self-hosted) on every push to `main`, every PR, and
+every version tag; tagged releases additionally run the live-engine integration
+suite.
 
 **Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that
 are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
@@ -251,8 +274,8 @@ It turns the package into a proper **url-based binary-release package**: the
 xcframework is published as a release asset and the binary is no longer carried
 in git.
 
-**To cut a release:** push a semver **tag** (e.g. `git tag 18.0.1 && git push
-origin 18.0.1`) — the push triggers the workflow. *Or*, as a fallback for
+**To cut a release:** push a semver **tag** (e.g. `git tag 18.0.10 && git push
+origin 18.0.10`) — the push triggers the workflow. *Or*, as a fallback for
 re-cutting a version whose tag already exists, run it manually: **Actions** →
 **Release binary** → **Run workflow** → enter the `version`. Either way the
 workflow runs on `macos-14` and, in one pass:
@@ -285,9 +308,10 @@ workflow runs on `macos-14` and, in one pass:
    rewriter at
    [`.github/scripts/rewrite_binary_target.py`](.github/scripts/rewrite_binary_target.py).)
 7. **Removes the committed binary**
-   (`git rm -r --ignore-unmatch Frameworks/Stockfish.xcframework`) and adds
-   `Frameworks/*.xcframework` to `.gitignore` — the binary now lives in the
-   release, not the repo.
+   (`git rm -rf --ignore-unmatch Frameworks/Stockfish.xcframework`), deletes
+   the built `Stockfish.xcframework.zip`, and adds both
+   `Frameworks/*.xcframework` and `Stockfish.xcframework.zip` to `.gitignore` —
+   the binary now lives in the release, not the repo.
 8. Commits that url-rewritten / binary-removed tree **on a detached HEAD**, then
    force-points the `<version>` tag at *that* commit and pushes **only the tag**.
    **`main` is never pushed** — it keeps its committed binary and stays
@@ -322,12 +346,21 @@ identical regardless of how the engine binary is hosted.
 ```
 SwiftStockfish/
   Package.swift
+  .upstream-version              # pinned upstream sf_* tag
   .github/
+    workflows/ci.yml             # build+test both arms (push to main / PRs / tags; live-engine suite on tags)
     workflows/release.yml        # "Release binary" workflow (builds + publishes + url-rewrites)
+    workflows/upstream-watch.yml # daily notify-only upstream release watcher
+    upstream-watch-issue.md      # body template for the watcher's tracking issue
     scripts/rewrite_binary_target.py  # flips the active binaryTarget path: -> url:+checksum: in CI
   Frameworks/
     Stockfish.xcframework        # PREBUILT multi-arch engine — path binaryTarget on `main`;
                                  #   a release tag drops it here and serves it from the release asset
+  Tools/
+    update-stockfish.sh          # re-vendor upstream at a tag + re-apply local patches
+    patches/                     # the local patches update-stockfish.sh re-applies
+    build-xcframework.sh         # builds the multi-arch Stockfish.xcframework
+    android/build-android.sh     # cross-compiles the source arm for Android
   Sources/
     CStockfish/                  # bridge-only target (links the engine binary)
       include/StockfishBridge.h  # PUBLIC umbrella header (publicHeadersPath)
@@ -338,23 +371,15 @@ SwiftStockfish/
                                  #   bridge; .cpp kept for GPL but EXCLUDED from build
     SwiftStockfish/              # Swift API
       StockfishEngine.swift      # the engine wrapper (AsyncStream of UCI output)
-      StockfishNetworks.swift    # the net manifest (version + required filenames)
+      StockfishNetworks.swift    # the net manifest (version + required filenames + pinned SHA-256s)
       StockfishNetworkLoader.swift  # version-aware download / verify / prune
+  Tests/
+    SwiftStockfishTests/         # logic + filesystem suites; gated live-engine integration suite
+  docs-site/                     # MkDocs documentation site
   README.md
   LICENSE                        # GPL-3.0
   .gitignore
 ```
-
-## Licensing
-
-Stockfish is licensed under the **GNU General Public License, version 3**. This
-package ships Stockfish (as the prebuilt `Stockfish.xcframework`, built from the
-Stockfish source kept under `Sources/CStockfish/stockfish/`) and links it into
-its output, so the entire SwiftStockfish package is a GPL-3.0 work and is
-distributed under GPL-3.0. See
-[`LICENSE`](LICENSE). If you consume this package in an application, that
-linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately-
-distributable GPL component.
 
 ## Deviations from the original spec
 
@@ -382,3 +407,14 @@ distributable GPL component.
   index store / module cache rely on atomic `rename()` semantics SMB does not
   provide). Build on a local disk. This package lives on the local APFS volume
   for that reason.
+
+## License
+
+Stockfish is licensed under the **GNU General Public License, version 3**. This
+package ships Stockfish (as the prebuilt `Stockfish.xcframework`, built from the
+Stockfish source kept under `Sources/CStockfish/stockfish/`) and links it into
+its output, so the entire SwiftStockfish package is a GPL-3.0 work and is
+distributed under GPL-3.0. See
+[`LICENSE`](LICENSE). If you consume this package in an application, that
+linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately-
+distributable GPL component.

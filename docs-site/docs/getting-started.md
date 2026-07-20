@@ -45,7 +45,8 @@ In **both** models the rule is the same: a valid net directory must be ready
 ## 2. Start the engine
 
 `StockfishEngine.init(networkDirectory:)` is failable — it returns `nil` if the
-bridge couldn't start (e.g. it failed to create its pipes).
+required NNUE nets are missing or invalid in `networkDirectory` (run the loader
+first) or if the bridge could not start its engine thread (resource exhaustion).
 
 ```swift
 guard let engine = StockfishEngine(networkDirectory: dir) else {

@@ -7,7 +7,7 @@ sequence and parse its replies from the `output` stream.
 
 ```swift
 public final class StockfishEngine: @unchecked Sendable {
-    public init?(networkDirectory: URL)        // failable; nil on bridge/pipe failure
+    public init?(networkDirectory: URL)        // failable; nil on missing/invalid nets or engine-thread failure
     public var output: AsyncStream<String>     // UCI lines, newline-stripped, in order
     public func send(_ command: String)        // any raw UCI command
     public func shutdown()                     // explicit teardown — joins threads, releases the gate
@@ -122,10 +122,11 @@ block indefinitely.
 
 Two constraints govern the engine lifecycle:
 
-- **Valid nets before creation** — if the required NNUE network is missing or invalid
-  when the engine is created, Stockfish calls `exit(EXIT_FAILURE)`, which terminates
-  the **entire host process** (not a catchable error). Always run the network loader
-  first.
+- **Valid nets before creation** — `StockfishEngine.init?` pre-flights the required
+  NNUE nets and returns `nil` if any is missing or invalid, so run the network
+  loader first. Driving the raw `CStockfish` bridge yourself has no such guard:
+  Stockfish calls `exit(EXIT_FAILURE)` in `verify_networks()` on the first
+  `go`/`ucinewgame`, terminating the entire host process.
 - **One engine per process** — the bridge enforces this with a lifecycle gate.
   Creating a second engine **blocks the calling thread** until the first is fully
   destroyed. This is a deadlock risk if done on the main thread/actor. Create and
