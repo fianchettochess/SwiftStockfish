@@ -5,9 +5,14 @@ The NNUE networks are large binaries the engine loads from disk at startup.
 networks, and it must complete before the engine is created.
 
 !!! danger "Order matters"
-    Stockfish exits the host process (`exit(EXIT_FAILURE)`) on a missing or invalid
-    net. Always `await` `ensure(in:)` (or point the engine at a known-good bundled
-    directory) **before** `StockfishEngine(networkDirectory:)`.
+    Stockfish verifies its nets on the first `go`/`ucinewgame` and exits the host
+    process (`exit(EXIT_FAILURE)`) on a missing or invalid net — not a catchable
+    Swift error. `StockfishEngine.init?` pre-flights the nets and returns `nil`
+    instead of letting that happen, but the pre-flight can only pass if the
+    directory is already correct — so always `await` `ensure(in:)` (or point the
+    engine at a known-good bundled directory) **before**
+    `StockfishEngine(networkDirectory:)`. Raw `CStockfish` consumers get no
+    pre-flight.
 
 ## The manifest
 
@@ -21,16 +26,18 @@ public enum StockfishNetworks {
 
     public struct Network: Sendable, Equatable, Hashable {
         public let filename: String                   // "nn-c288c895ea92.nnue"
-        public init(filename: String)
+        public let sha256: String                     // the pinned full 64-hex SHA-256
+        public init(filename: String, sha256: String = "")
         public var shaPrefix: String                  // the 12-hex SHA-256 prefix
     }
 }
 ```
 
 Stockfish 18 uses **two** networks: a "big" network (main evaluation) and a
-"small" network (a faster, lower-accuracy path). Both must be present. The 12-hex
-prefix in each filename is that network's own SHA-256 prefix, which the loader
-verifies.
+"small" network (a faster, lower-accuracy path). Both must be present. Each
+net's FULL SHA-256 is pinned alongside its filename, and the loader verifies the
+whole digest after a download — the filename's 12-hex prefix is only a fallback
+for fixtures without a pinned hash.
 
 ## The loader
 
@@ -98,7 +105,7 @@ public enum Source: Sendable, CaseIterable {
 
 ```swift
 public enum LoaderError: Error, Sendable {
-    case checksumMismatch(String)    // a download's SHA prefix didn't match its filename
+    case checksumMismatch(String)    // a download's SHA-256 didn't match the pinned digest
     case allSourcesFailed(String)    // every source failed for a file
     case invalidNetworkName(String)  // filename isn't nn-<hex>.nnue
     case fileSystem(String)          // a filesystem operation failed
@@ -114,6 +121,7 @@ rest:
 2. Update `StockfishNetworks.required` with the new version's network filenames,
    copied verbatim from the engine's `evaluate.h` (`EvalFileDefaultNameBig` and
    `EvalFileDefaultNameSmall`).
+3. Pin each new net's full SHA-256 in `StockfishNetworks.required`.
 
 On the next `ensure(in:)`, the loader downloads the new networks and **prunes the
 old ones**, so a directory that held the 18 networks becomes a directory holding

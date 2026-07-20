@@ -95,7 +95,7 @@ exceptions. The remaining work is in the toolchain, not the bridge.
 ## Releasing (maintainers)
 
 Releases are produced by the **`Release binary`** GitHub Actions workflow, not by
-hand. Push a semver **tag** (e.g. `git tag 18.0.1 && git push origin 18.0.1`); the
+hand. Push a semver **tag** (e.g. `git tag 18.0.10 && git push origin 18.0.10`); the
 workflow builds `Stockfish.xcframework`, publishes it as a release asset, computes
 its checksum, rewrites the active `binaryTarget` from `path:` to `url:` +
 `checksum:` on a detached commit, and force-points the tag at that commit. **`main`

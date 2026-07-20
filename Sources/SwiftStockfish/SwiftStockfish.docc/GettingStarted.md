@@ -71,7 +71,8 @@ bundled directory, must be ready *before* the engine is created.
 ## Start the engine
 
 ``StockfishEngine/init(networkDirectory:)`` is failable. It returns `nil` if the
-bridge cannot start, for example because it failed to create its pipes.
+required NNUE nets are missing or invalid in `networkDirectory` (run the loader
+first) or if the bridge could not start its engine thread (resource exhaustion).
 
 ```swift
 guard let engine = StockfishEngine(networkDirectory: dir) else {

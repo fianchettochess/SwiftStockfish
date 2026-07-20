@@ -11,11 +11,16 @@ hold **exactly** the right nets — keeping valid ones, (re)downloading
 missing/corrupt ones, and pruning leftovers from a previous Stockfish version —
 and it must finish before the engine is created.
 
-> Important: Stockfish exits the host process (`exit(EXIT_FAILURE)`) on a missing
-> or invalid net. Always `await` ``StockfishNetworkLoader/ensure(in:progress:)``
-> (or point the engine at a known-good bundled directory) **before**
-> ``StockfishEngine/init(networkDirectory:)``. This is a process-fatal abort, not
-> a catchable Swift error.
+> Important: Stockfish verifies its nets on the first `go`/`ucinewgame` and exits
+> the host process (`exit(EXIT_FAILURE)`) on a missing or invalid net — a
+> process-fatal abort, not a catchable Swift error.
+> ``StockfishEngine/init(networkDirectory:)`` pre-flights the nets and returns
+> `nil` instead of letting that happen, but the pre-flight can only pass if the
+> directory is already correct — so always `await`
+> ``StockfishNetworkLoader/ensure(in:progress:)`` (or point the engine at a
+> known-good bundled directory) **before**
+> ``StockfishEngine/init(networkDirectory:)``. Raw `CStockfish` consumers get no
+> pre-flight.
 
 ## The manifest
 
@@ -27,9 +32,11 @@ Stockfish 18 uses **two** nets — a "big" net for the main evaluation and a
 "small" net for a faster, lower-accuracy path; both must be present. Each net is
 described by a ``StockfishNetworks/Network``, whose
 ``StockfishNetworks/Network/filename`` follows Stockfish's own scheme,
-`nn-<first 12 hex of the file's SHA-256>.nnue`. That 12-hex prefix — exposed as
-``StockfishNetworks/Network/shaPrefix`` — is a self-describing checksum, which is
-exactly what the loader verifies after a download.
+`nn-<first 12 hex of the file's SHA-256>.nnue`. Each ``StockfishNetworks/Network``
+also pins the net's full SHA-256 (``StockfishNetworks/Network/sha256``); the
+loader verifies the WHOLE digest after a download. The filename's 12-hex prefix
+(``StockfishNetworks/Network/shaPrefix``) is a fallback used only when no full
+hash is pinned.
 
 ## The loader
 
@@ -98,7 +105,7 @@ fishtest is tried first, GitHub as a fallback.
 A failed `ensure` throws a ``StockfishNetworkLoader/LoaderError``:
 
 - ``StockfishNetworkLoader/LoaderError/checksumMismatch(_:)`` — a download's
-  SHA-256 prefix did not match its filename.
+  SHA-256 did not match the pinned digest.
 - ``StockfishNetworkLoader/LoaderError/allSourcesFailed(_:)`` — every source
   failed for a file.
 - ``StockfishNetworkLoader/LoaderError/invalidNetworkName(_:)`` — a filename does
@@ -115,6 +122,7 @@ rest:
 2. Update ``StockfishNetworks/required`` with the new version's net filenames
    (copy them verbatim from the engine's `evaluate.h` — `EvalFileDefaultNameBig`
    / `EvalFileDefaultNameSmall`).
+3. Pin each new net's full SHA-256 in ``StockfishNetworks/required``.
 
 On the next ``StockfishNetworkLoader/ensure(in:progress:)``, the loader downloads
 the new nets and **prunes the old ones**, so a directory that held the 18 nets

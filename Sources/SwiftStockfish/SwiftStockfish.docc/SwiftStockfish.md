@@ -22,16 +22,20 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 
 ### Requirements
 
-> Warning: **Run the loader before creating the engine.** Stockfish loads its
-> NNUE network during initialization and calls `exit(EXIT_FAILURE)` if the net is
-> missing or invalid — that terminates the *entire host process*, not a catchable
-> Swift error. Always `await` ``StockfishNetworkLoader/ensure(in:progress:)`` into
-> the engine's network directory first.
+> Warning: **Run the loader before creating the engine.** Stockfish verifies its
+> NNUE nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if one
+> is missing or invalid — terminating the *entire host process*, not a catchable
+> Swift error. ``StockfishEngine/init(networkDirectory:)`` pre-flights the nets
+> and returns `nil` instead of letting that happen, but the pre-flight can only
+> pass if the directory is already correct — so always `await`
+> ``StockfishNetworkLoader/ensure(in:progress:)`` into the engine's network
+> directory first. Raw `CStockfish` consumers get no pre-flight.
 
-> Warning: **One engine per process.** The bridge swaps the process-global
-> `std::cin` / `std::cout` stream buffers so Stockfish talks to in-process pipes.
-> A second live ``StockfishEngine`` clobbers the first's redirection. Create, use,
-> and destroy one engine before making another.
+> Warning: **One engine per process.** The bridge enforces the single-instance
+> rule with a lifecycle gate: creating a second ``StockfishEngine`` blocks the
+> calling thread until the first is fully torn down. Create and tear down engines
+> off the main thread/actor, and always shut one engine down before creating
+> another — a leaked engine hangs the next create forever.
 
 ### Example
 

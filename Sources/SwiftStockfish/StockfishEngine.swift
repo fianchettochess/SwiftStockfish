@@ -18,14 +18,17 @@ import CStockfish
 /// ``quit()`` send the obvious commands.
 ///
 /// - Important: The caller MUST ensure the required NNUE networks already exist
-///   in `networkDirectory` BEFORE creating the engine. Stockfish loads its
-///   evaluation net during initialization and calls `exit(EXIT_FAILURE)` if the
+///   in `networkDirectory` BEFORE creating the engine. Stockfish verifies its
+///   nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if a
 ///   net is missing or invalid — which would terminate the entire host process,
-///   not just throw. Run ``StockfishNetworkLoader/ensure(in:progress:)`` first.
+///   not just throw. This initializer pre-flights the nets and returns `nil`
+///   instead, but the pre-flight only passes if the directory is already
+///   correct. Run ``StockfishNetworkLoader/ensure(in:progress:)`` first.
 ///
 /// - Important: Only ONE `StockfishEngine` may be alive in a process at a time.
 ///   The bridge swaps the process-global `std::cin`/`std::cout` stream buffers
-///   so Stockfish talks to in-process pipes. Since 2026-07-01 the bridge
+///   so Stockfish talks to an in-memory command queue and output callback.
+///   Since 2026-07-01 the bridge
 ///   ENFORCES this with a lifecycle gate: creating a second engine BLOCKS the
 ///   calling thread until the first is fully destroyed — so never create an
 ///   engine on the main thread/actor, and always tear engines down (a leaked
