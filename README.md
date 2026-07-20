@@ -1,8 +1,9 @@
 # SwiftStockfish
 
-[![Swift Package Index — Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjaredbrewer%2FSwiftStockfish%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/fianchettochess/SwiftStockfish)
-[![Swift Package Index — Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fjaredbrewer%2FSwiftStockfish%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/fianchettochess/SwiftStockfish)
+[![Swift Package Index — Swift versions](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Ffianchettochess%2FSwiftStockfish%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/fianchettochess/SwiftStockfish)
+[![Swift Package Index — Platforms](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Ffianchettochess%2FSwiftStockfish%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/fianchettochess/SwiftStockfish)
 [![Release](https://img.shields.io/github/v/release/fianchettochess/SwiftStockfish?sort=semver&label=release&color=blue)](https://github.com/fianchettochess/SwiftStockfish/releases)
+[![CI](https://github.com/fianchettochess/SwiftStockfish/actions/workflows/ci.yml/badge.svg)](https://github.com/fianchettochess/SwiftStockfish/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
