@@ -99,21 +99,26 @@ jobs:
           WATCH="${XCF}/watchos-arm64_arm64_32/libStockfish-watchos.a"
           MAC="${XCF}/macos-arm64_x86_64/libStockfish-macosx.a"
           plutil -lint "${XCF}/Info.plist"
-          lipo -verify_arch arm64 "${XCF}/ios-arm64/libStockfish-iphoneos-arm64.a"
-          lipo -verify_arch arm64 x86_64 \
-            "${XCF}/ios-arm64_x86_64-simulator/libStockfish-iphonesimulator.a"
-          lipo -verify_arch arm64 x86_64 \
-            "${XCF}/ios-arm64_x86_64-maccatalyst/libStockfish-maccatalyst.a"
-          lipo -verify_arch arm64 "${XCF}/tvos-arm64/libStockfish-appletvos-arm64.a"
-          lipo -verify_arch arm64 x86_64 \
-            "${XCF}/tvos-arm64_x86_64-simulator/libStockfish-appletvsimulator.a"
-          lipo -verify_arch arm64_32 arm64 "${WATCH}"
-          lipo -verify_arch arm64 x86_64 \
-            "${XCF}/watchos-arm64_x86_64-simulator/libStockfish-watchsimulator.a"
-          lipo -verify_arch arm64 "${XCF}/xros-arm64/libStockfish-xros-arm64.a"
-          lipo -verify_arch arm64 x86_64 \
-            "${XCF}/xros-arm64_x86_64-simulator/libStockfish-xrsimulator.a"
-          lipo -verify_arch arm64 x86_64 "${MAC}"
+          lipo "${XCF}/ios-arm64/libStockfish-iphoneos-arm64.a" -verify_arch arm64
+          lipo \
+            "${XCF}/ios-arm64_x86_64-simulator/libStockfish-iphonesimulator.a" \
+            -verify_arch arm64 x86_64
+          lipo \
+            "${XCF}/ios-arm64_x86_64-maccatalyst/libStockfish-maccatalyst.a" \
+            -verify_arch arm64 x86_64
+          lipo "${XCF}/tvos-arm64/libStockfish-appletvos-arm64.a" -verify_arch arm64
+          lipo \
+            "${XCF}/tvos-arm64_x86_64-simulator/libStockfish-appletvsimulator.a" \
+            -verify_arch arm64 x86_64
+          lipo "${WATCH}" -verify_arch arm64_32 arm64
+          lipo \
+            "${XCF}/watchos-arm64_x86_64-simulator/libStockfish-watchsimulator.a" \
+            -verify_arch arm64 x86_64
+          lipo "${XCF}/xros-arm64/libStockfish-xros-arm64.a" -verify_arch arm64
+          lipo \
+            "${XCF}/xros-arm64_x86_64-simulator/libStockfish-xrsimulator.a" \
+            -verify_arch arm64 x86_64
+          lipo "${MAC}" -verify_arch arm64 x86_64
 
           minos() {
             otool -arch "$1" -l "$2" | \
