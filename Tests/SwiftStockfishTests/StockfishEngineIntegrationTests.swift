@@ -3,27 +3,59 @@
 //  SwiftStockfishTests
 //
 //  Real-engine UCI integration, GATED behind SWIFTSTOCKFISH_INTEGRATION so it
-//  stays OUT of a plain `swift test` — it downloads the real ~107 MB nets and
-//  spins up a live engine. Run it explicitly with:
+//  stays OUT of a plain `swift test` — its first live run downloads the real
+//  ~107 MB nets and spins up a live engine. Later runs reuse the versioned
+//  cache after the loader verifies both nets' full SHA-256 digests. Run it with:
 //
 //      SWIFTSTOCKFISH_INTEGRATION=1 swift test
 //
 //  This suite still COMPILES on every build (so it can't bit-rot), it just
 //  doesn't EXECUTE unless the env var is set.
 //
-//  CRITICAL ordering: the nets must be downloaded BEFORE `StockfishEngine` is
-//  created. Stockfish loads its evaluation net during init and calls
-//  `exit(EXIT_FAILURE)` on a missing/invalid net — that would kill the whole
-//  test process, not fail one test. So `ensure(in:)` always runs first.
+//  CRITICAL ordering: the shared net fixture must be prepared BEFORE
+//  `StockfishEngine` is created. Stockfish loads its evaluation net during init
+//  and calls `exit(EXIT_FAILURE)` on a missing/invalid net — that would kill the
+//  whole test process, not fail one test. So `ensure(in:)` always runs first.
 //
 
 import Testing
 import Foundation
 @testable import SwiftStockfish
 
+/// One persistent, hash-verified NNUE fixture for the entire live test process.
+///
+/// A manifest-derived directory keeps different Stockfish/network revisions
+/// isolated. `ensure(in:)` still validates the full pinned SHA-256 of every
+/// cached file before either test creates an engine.
+private enum SharedNNUEFixture {
+    static let directory: Task<URL, any Error> = Task {
+        let fileManager = FileManager.default
+        let cacheRoot = fileManager.urls(
+            for: .cachesDirectory,
+            in: .userDomainMask
+        ).first ?? fileManager.temporaryDirectory
+        let manifestKey = StockfishNetworks.required
+            .map(\.shaPrefix)
+            .joined(separator: "-")
+        let directory = cacheRoot
+            .appendingPathComponent(
+                "SwiftStockfishIntegrationTests",
+                isDirectory: true
+            )
+            .appendingPathComponent(
+                "Stockfish-\(StockfishNetworks.stockfishVersion)-\(manifestKey)",
+                isDirectory: true
+            )
+
+        try await StockfishNetworkLoader().ensure(in: directory)
+        return directory
+    }
+}
+
 @Suite(
     "StockfishEngine UCI integration (gated)",
-    .enabled(if: ProcessInfo.processInfo.environment["SWIFTSTOCKFISH_INTEGRATION"] != nil)
+    .enabled(if: ProcessInfo.processInfo.environment["SWIFTSTOCKFISH_INTEGRATION"] == "1"),
+    .serialized
 )
 struct StockfishEngineIntegrationTests {
 
@@ -62,12 +94,8 @@ struct StockfishEngineIntegrationTests {
 
     @Test("drives a real engine through uci → isready → go depth 1 → bestmove")
     func drivesRealEngineOverUCI() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: dir) }
-
-        // 1. Download the REAL nets first — before creating the engine.
-        try await StockfishNetworkLoader().ensure(in: dir)
+        // 1. Prepare/reuse the REAL nets before creating the engine.
+        let dir = try await SharedNNUEFixture.directory.value
 
         // 2. Create the live engine.
         guard let engine = StockfishEngine(networkDirectory: dir) else {
@@ -94,10 +122,7 @@ struct StockfishEngineIntegrationTests {
 
     @Test("shutdown is idempotent; send after shutdown is a safe no-op")
     func shutdownIsIdempotentAndGuardsSend() async throws {
-        let dir = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-        defer { try? FileManager.default.removeItem(at: dir) }
-        try await StockfishNetworkLoader().ensure(in: dir)
+        let dir = try await SharedNNUEFixture.directory.value
 
         guard let engine = StockfishEngine(networkDirectory: dir) else {
             throw IntegrationError.engineCreationFailed

@@ -11,9 +11,9 @@ name: CI
 #   * macos-self-hosted — the APPLE (binary) arm (self-hosted Intel Mac Pro).
 #     Links the prebuilt Stockfish.xcframework committed under Frameworks/.
 #     No FORCE_SOURCE override.  The xcframework's macos-arm64_x86_64 slice
-#     covers x86_64 (Intel).  The gated engine-integration suite (suite 3,
-#     which needs the NNUE net files — gitignored, ~107 MB) is NOT run here;
-#     it is correctly skipped when SWIFTSTOCKFISH_INTEGRATION is unset.
+#     covers x86_64 (Intel).  This trusted job enables the live engine suite;
+#     its versioned cache downloads the ~107 MB NNUE fixture once and verifies
+#     the nets' full pinned SHA-256 digests before each test process uses them.
 #
 # Runs on every push to `main`, every PR, and manual dispatch. The release
 # workflow separately rebuilds the artifact and runs the live-engine suite
@@ -41,8 +41,9 @@ jobs:
     name: Linux x86_64 (source build)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # Exercise the package's declared minimum tools version, not a floating SDK.
-    container: swift:6.0.3-jammy
+    # Pin the Swift 6.4 release-branch snapshot's Jammy image by its immutable
+    # multi-architecture digest so the moving nightly tag cannot drift.
+    container: swiftlang/swift:nightly-6.4.x-jammy@sha256:cb082661bc53e8deb8a15610396af75b71752b8f62952426b8906847e607af8c
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: swift build
@@ -64,9 +65,10 @@ jobs:
           grep -qw BMI2 <<< "${FEATURES}"
       - name: swift build
         run: swift build
-      - name: swift test
-        # Suite 1 (logic) and Suite 2 (filesystem) run unconditionally.
-        # Suite 3 (live engine integration) stays skipped here; the Release
-        # workflow runs it against the freshly rebuilt macOS arm64 slice. A
-        # shared/cached net fixture is still needed for a non-flaky Intel run.
+      - name: swift test — including live engine integration
+        # The job-level trust boundary above excludes fork pull requests. The
+        # live suite shares one serialized, versioned NNUE fixture and reuses
+        # valid cached downloads across runs on this self-hosted machine.
+        env:
+          SWIFTSTOCKFISH_INTEGRATION: '1'
         run: swift test
