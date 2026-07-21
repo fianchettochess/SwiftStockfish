@@ -213,6 +213,189 @@ struct StockfishNetworkLoaderTests {
                 "a corrupt net must be removed before re-fetching")
     }
 
+    // MARK: - Custom-manifest validation
+
+    @Test("rejects a later traversal entry before pruning, path use, or transport")
+    func rejectsLaterTraversalEntryBeforeAnyMutation() async throws {
+        let root = makeTempDir()
+        defer { remove(root) }
+        let dir = root.appendingPathComponent("nets")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+
+        let valid = Self.syntheticNet
+        let validURL = dir.appendingPathComponent(valid.filename)
+        try Self.syntheticContent.write(to: validURL)
+
+        let stale = dir.appendingPathComponent("nn-deadbeefcafe.nnue")
+        let staleBytes = Data("must survive failed manifest validation".utf8)
+        try staleBytes.write(to: stale)
+
+        let maliciousName = "nn-a/../../outside.nnue"
+        let outside = root.appendingPathComponent("outside.nnue")
+        let sentinel = Data("do not delete".utf8)
+        try sentinel.write(to: outside)
+
+        let spy = TransportSpy()
+        let loader = StockfishNetworkLoader(
+            networks: [valid, .init(filename: maliciousName)],
+            transport: { url, stagingURL in
+                spy.record(url: url, stagingURL: stagingURL)
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+
+        do {
+            try await loader.ensure(in: dir)
+            Issue.record("a traversal filename must be rejected")
+        } catch StockfishNetworkLoader.LoaderError.invalidNetworkName(let filename) {
+            #expect(filename == maliciousName)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(spy.requestedURLs.isEmpty)
+        #expect(try Data(contentsOf: validURL) == Self.syntheticContent)
+        #expect(try Data(contentsOf: stale) == staleBytes,
+                "a bad later entry must be found before the prune pass")
+        #expect(try Data(contentsOf: outside) == sentinel,
+                "validation must happen before any caller-derived path is removed")
+    }
+
+    @Test("rejects a malformed full digest before mutating an existing net")
+    func rejectsMalformedFullDigestBeforeFilesystemUse() async throws {
+        let dir = makeTempDir()
+        defer { remove(dir) }
+
+        let filename = Self.syntheticNet.filename
+        let malformedDigest = Self.syntheticPrefix + String(repeating: "0", count: 51)
+        let net = StockfishNetworks.Network(filename: filename, sha256: malformedDigest)
+        let existing = dir.appendingPathComponent(filename)
+        try Self.syntheticContent.write(to: existing)
+
+        let spy = TransportSpy()
+        let loader = StockfishNetworkLoader(
+            networks: [net],
+            transport: { url, stagingURL in
+                spy.record(url: url, stagingURL: stagingURL)
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+
+        do {
+            try await loader.ensure(in: dir)
+            Issue.record("a malformed full digest must be rejected")
+        } catch StockfishNetworkLoader.LoaderError.checksumMismatch(let filename) {
+            #expect(filename == net.filename)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(spy.requestedURLs.isEmpty)
+        #expect(try Data(contentsOf: existing) == Self.syntheticContent)
+    }
+
+    @Test("rejects a full digest whose prefix disagrees with its filename")
+    func rejectsFullDigestWithMismatchedFilenamePrefix() async throws {
+        let dir = makeTempDir()
+        defer { remove(dir) }
+
+        let net = StockfishNetworks.Network(
+            filename: Self.syntheticNet.filename,
+            sha256: String(repeating: "0", count: 64)
+        )
+        let existing = dir.appendingPathComponent(net.filename)
+        try Self.syntheticContent.write(to: existing)
+
+        let spy = TransportSpy()
+        let loader = StockfishNetworkLoader(
+            networks: [net],
+            transport: { url, stagingURL in
+                spy.record(url: url, stagingURL: stagingURL)
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+
+        do {
+            try await loader.ensure(in: dir)
+            Issue.record("a digest inconsistent with its filename must be rejected")
+        } catch StockfishNetworkLoader.LoaderError.checksumMismatch(let filename) {
+            #expect(filename == net.filename)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(spy.requestedURLs.isEmpty)
+        #expect(try Data(contentsOf: existing) == Self.syntheticContent)
+    }
+
+    @Test("rejects duplicate filenames before mutating the directory")
+    func rejectsDuplicateFilenamesBeforeAnyMutation() async throws {
+        let dir = makeTempDir()
+        defer { remove(dir) }
+
+        let existing = dir.appendingPathComponent(Self.syntheticNet.filename)
+        try Self.syntheticContent.write(to: existing)
+        let stale = dir.appendingPathComponent("nn-deadbeefcafe.nnue")
+        let staleBytes = Data("must survive duplicate-manifest rejection".utf8)
+        try staleBytes.write(to: stale)
+
+        let spy = TransportSpy()
+        let loader = StockfishNetworkLoader(
+            networks: [Self.syntheticNet, Self.syntheticNet],
+            transport: { url, stagingURL in
+                spy.record(url: url, stagingURL: stagingURL)
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+
+        do {
+            try await loader.ensure(in: dir)
+            Issue.record("a duplicate filename must be rejected")
+        } catch StockfishNetworkLoader.LoaderError.checksumMismatch(let filename) {
+            #expect(filename == Self.syntheticNet.filename)
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+
+        #expect(spy.requestedURLs.isEmpty)
+        #expect(try Data(contentsOf: existing) == Self.syntheticContent)
+        #expect(try Data(contentsOf: stale) == staleBytes)
+        #expect(!loader.requiredNetworksSatisfied(in: dir))
+    }
+
+    @Test("a matching filename prefix cannot bypass a mismatched full digest")
+    func fullDigestTakesPrecedenceOverFilenamePrefix() async throws {
+        let dir = makeTempDir()
+        defer { remove(dir) }
+
+        let wrongFullDigest = Self.syntheticPrefix + String(repeating: "0", count: 52)
+        let net = StockfishNetworks.Network(
+            filename: Self.syntheticNet.filename,
+            sha256: wrongFullDigest
+        )
+        let existing = dir.appendingPathComponent(net.filename)
+        try Self.syntheticContent.write(to: existing)
+
+        let spy = TransportSpy()
+        let loader = StockfishNetworkLoader(
+            networks: [net],
+            transport: { url, stagingURL in
+                spy.record(url: url, stagingURL: stagingURL)
+                throw URLError(.notConnectedToInternet)
+            }
+        )
+
+        await #expect(throws: StockfishNetworkLoader.LoaderError.self) {
+            try await loader.ensure(in: dir)
+        }
+        #expect(spy.requestedURLs == [
+            StockfishNetworkLoader.Source.fishtest.url(for: net.filename),
+            StockfishNetworkLoader.Source.githubNetworks.url(for: net.filename),
+        ])
+        #expect(!FileManager.default.fileExists(atPath: existing.path),
+                "prefix-only validity must not override a supplied full digest")
+    }
+
     // MARK: - Progress.fractionCompleted (pure struct logic, no IO)
 
     @Test("fractionCompleted is nil when the total is unknown")

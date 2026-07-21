@@ -19,12 +19,23 @@ Swift tools version 6.0; C++20 (`gnu++20`). WASM is not yet supported. See
 [Platform support](concepts/platform-support.md) for the full matrix and SIMD
 details.
 
+!!! note "Intel CPU requirement"
+    The prebuilt Apple x86_64 slices intentionally retain AVX2/BMI2 performance
+    and require a Haswell-class Intel CPU or newer. The binary does not runtime-
+    dispatch to a baseline implementation on older Intel hardware.
+
+!!! note "ARM CPU requirement"
+    The optimized arm64 and arm64_32 engine slices emit ARM dot-product
+    instructions directly and require FEAT_DotProd-capable hardware. They do not
+    runtime-dispatch to a scalar kernel. The watchOS archive starts at arm64_32
+    and does not cover legacy armv7k watches.
+
 ## Add the package
 
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/fianchettochess/SwiftStockfish", from: "18.0.0"),
+    .package(url: "https://github.com/fianchettochess/SwiftStockfish", from: "18.0.9"),
 ],
 targets: [
     .target(
@@ -81,7 +92,7 @@ The default `swift test` run never touches the network. The real-engine UCI
 integration suite is gated behind the `SWIFTSTOCKFISH_INTEGRATION` environment
 variable (it needs a ~107 MB net download and a live engine).
 
-!!! note "Build on a local disk"
-    `swift build` fails on an SMB network mount — the index store / module cache
-    rely on atomic `rename()` semantics SMB does not provide. Build on a local
-    APFS volume.
+!!! note "Filesystem requirements"
+    Some SMB network mounts do not provide the atomic `rename()` semantics
+    Swift's index store and module cache require. If a build fails there, use a
+    local filesystem with atomic rename support.

@@ -32,6 +32,11 @@ struct StockfishNetworksTests {
             "garbage",     // no prefix/suffix at all
             "nn-.nnue",    // prefix + suffix but nothing between → start == end
             "foo.nnue",    // right suffix, wrong prefix
+            "nn-abcdefabcdef0.nnue", // too many digest characters
+            "nn-abcdefabcde.nnue",   // too few digest characters
+            "nn-abcdefabcdeg.nnue",  // non-hex digest character
+            "nn-ABCDEFABCDEF.nnue",  // canonical names are lowercase
+            "nn-a/../../outside.nnue", // path separators are never valid
         ]
     )
     func shaPrefixIsEmptyForMalformedNames(_ filename: String) {
@@ -70,6 +75,26 @@ struct StockfishNetworksTests {
             }
             #expect(isLowerHex, "shaPrefix \(prefix) is not 12 lowercase hex chars")
         }
+    }
+
+    @Test("each required net pins a canonical full SHA-256 matching its filename")
+    func requiredNetsHaveCanonicalFullDigests() {
+        for net in StockfishNetworks.required {
+            #expect(net.sha256.count == 64)
+            #expect(net.sha256.hasPrefix(net.shaPrefix))
+            #expect(net.hasValidSHA256)
+        }
+    }
+
+    @Test("full SHA-256 input is normalized to lowercase")
+    func fullDigestInputIsNormalized() {
+        let required = StockfishNetworks.required[0]
+        let net = StockfishNetworks.Network(
+            filename: required.filename,
+            sha256: required.sha256.uppercased()
+        )
+        #expect(net.sha256 == required.sha256)
+        #expect(net.hasValidSHA256)
     }
 
     @Test("stockfishVersion is 18")

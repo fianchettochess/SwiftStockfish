@@ -13,7 +13,7 @@ SwiftStockfish vendors the Stockfish C++ source in-tree under `Sources/CStockfis
 - [ ] Check for new or renamed NNUE nets referenced by `Sources/SwiftStockfish/StockfishNetworks.swift` (bump `stockfishVersion` + `required`)
 - [ ] Rebuild the xcframework: `Tools/build-xcframework.sh`
 - [ ] `swift test` on the path-based `main`
-- [ ] Review the diff, commit, and push an `N.N.N` release tag — CI builds the xcframework, checksums it, and publishes
+- [ ] Review the diff, commit, then run **Actions → Release binary** with a new `N.N.N` version (the workflow builds/tests the exact artifact and creates the tag once)
 
 <sub>`Tools/update-stockfish.sh` updates `.upstream-version` for you.</sub>
 

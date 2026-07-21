@@ -8,8 +8,8 @@ recompile Stockfish — they just link this binary.
 
 > **CI runs this script too.** The repo's `Release binary` workflow
 > (`.github/workflows/release.yml`) runs `Tools/build-xcframework.sh` on
-> `macos-14`, then zips the result, publishes it as a release asset, and
-> rewrites `Package.swift`'s binaryTarget to a checksummed `url:`. So this is
+> `macos-26` with Xcode 26.6, validates and tests that exact result, then stages a draft release
+> and creates the final tag once at the checksummed `url:` manifest. So this is
 > both the local "regenerate the committed binary" tool and the build step of a
 > release. See the README's [Releasing](../README.md#releasing) section.
 
@@ -38,16 +38,22 @@ Produces `Frameworks/Stockfish.xcframework` with ten slices:
 | `macos-arm64_x86_64` | arm64, x86_64 |
 | `tvos-arm64` | arm64 (device) |
 | `tvos-arm64_x86_64-simulator` | arm64, x86_64 |
-| `watchos-arm64` | arm64 (device) |
+| `watchos-arm64_arm64_32` | arm64_32 (watchOS 6+), arm64 (watchOS 26+) device |
 | `watchos-arm64_x86_64-simulator` | arm64, x86_64 |
 | `xros-arm64` | arm64 (device) |
 | `xros-arm64_x86_64-simulator` | arm64, x86_64 |
 
 Build flags mirror the in-target build exactly: `-std=gnu++20 -O3 -DNDEBUG`,
 the `StockfishConfig.h` prefix header (which defines `NNUE_EMBEDDING_OFF` plus
-the per-arch SIMD flags, `-mavx2 -mbmi2` on the x86_64 slices). The NNUE
+the per-arch SIMD configuration: NEON+DOTPROD on ARM and `-mavx2 -mbmi2` on
+the x86_64 slices). The NNUE
 network is **not** embedded — it loads at runtime from a `.nnue` resource, so
 the binary stays small and the net can be swapped without a recompile.
+
+The x86_64 archive is intentionally performance-oriented and requires
+AVX2/BMI2 (Haswell-class hardware or newer); it has no runtime baseline fallback.
+ARM64/arm64_32 archives likewise require FEAT_DotProd and do not runtime-dispatch
+to a scalar kernel. Legacy watchOS armv7k is not built.
 
 After regenerating, commit the updated `Frameworks/Stockfish.xcframework` on
 `main` (path mode keeps the binary in git so local `swift build` works). To
