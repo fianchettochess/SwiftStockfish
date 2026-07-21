@@ -18,9 +18,11 @@
 //  THEM TOGETHER — a hardening fix landed in one loader must be ported to the
 //  other in the same session (this rule exists because the two copies drifted
 //  once already). Intentional differences: Stockfish manages a manifest of
-//  several `nn-<12hex>.nnue` nets verified by SHA-256 *prefix* with a
-//  fishtest→GitHub source fallback; Reckless manages one `v<NN>-<8hex>.nnue`
-//  net verified against a pinned *full* SHA-256 from a single URL, so its
+//  several `nn-<12hex>.nnue` nets verified against pinned full SHA-256 values
+//  (custom manifests may omit the full digest and use the filename prefix) with
+//  a fishtest→GitHub source fallback; Reckless manages one
+//  `v<NN>-<8hex>.nnue` net verified against a pinned *full* SHA-256 from a
+//  single URL, so its
 //  LoaderError carries download context Stockfish expresses via
 //  allSourcesFailed, and its Progress has no `file` field (one net — nothing
 //  to disambiguate).
@@ -133,7 +135,8 @@ public struct StockfishNetworkLoader: Sendable {
     }
 
     public enum LoaderError: Error, Sendable {
-        /// A downloaded file's SHA-256 prefix did not match its filename.
+        /// A network's SHA-256 metadata or downloaded bytes did not match the
+        /// digest encoded by its filename, or the manifest repeats a filename.
         /// Associated value: the filename.
         case checksumMismatch(String)
         /// Every source failed for a file. Associated value: the filename.
@@ -212,6 +215,13 @@ public struct StockfishNetworkLoader: Sendable {
     ) async throws {
         let fm = FileManager.default
 
+        // Validate the ENTIRE caller-supplied manifest before creating,
+        // pruning, hashing, or downloading anything. In particular, an invalid
+        // later entry must not allow earlier entries to mutate the directory
+        // before the configuration error is reported.
+        try Task.checkCancellation()
+        try validateManifest()
+
         // 1. Ensure the directory exists.
         do {
             try fm.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -229,9 +239,6 @@ public struct StockfishNetworkLoader: Sendable {
         // 3. Ensure each required net.
         for network in networks {
             try Task.checkCancellation()
-            guard !network.shaPrefix.isEmpty else {
-                throw LoaderError.invalidNetworkName(network.filename)
-            }
             let destination = directory.appendingPathComponent(network.filename)
 
             // Keep it if present and valid.
@@ -476,19 +483,49 @@ public struct StockfishNetworkLoader: Sendable {
 
     // MARK: - Verification
 
+    /// Validate caller-supplied manifest data before using its filename to
+    /// construct a filesystem path or source URL.
+    private func validateManifestEntry(_ network: StockfishNetworks.Network) throws {
+        guard !network.shaPrefix.isEmpty else {
+            throw LoaderError.invalidNetworkName(network.filename)
+        }
+        guard network.hasValidSHA256 else {
+            // Keep the established public error surface: adding a new enum
+            // case would break downstream exhaustive switches in a patch
+            // release. This is a checksum-manifest mismatch, detected before
+            // any filesystem mutation.
+            throw LoaderError.checksumMismatch(network.filename)
+        }
+    }
+
+    /// Validate the manifest as a whole. A filename can name only one required
+    /// file, so duplicates are configuration errors even when their digests are
+    /// identical. Reject them before any filesystem mutation; otherwise two
+    /// conflicting entries can overwrite one another and leave `ensure` claiming
+    /// success for a manifest that cannot be satisfied simultaneously.
+    private func validateManifest() throws {
+        var filenames = Set<String>()
+        for network in networks {
+            try validateManifestEntry(network)
+            guard filenames.insert(network.filename).inserted else {
+                // Preserve the established public error enum: duplicate
+                // requirements are inconsistent checksum metadata for one path.
+                throw LoaderError.checksumMismatch(network.filename)
+            }
+        }
+    }
+
     /// Compute the file's SHA-256, hex-encode it, take the first 12 chars, and
     /// compare against the filename's encoded prefix. This is the same check
     /// Stockfish itself performs on its nets.
     private func verify(fileAt url: URL, matches network: StockfishNetworks.Network) throws -> Bool {
+        try validateManifestEntry(network)
+
         // Prefer the full pinned SHA-256; fall back to the filename's 12-hex
         // prefix only when a Network was constructed without a full hash (test
         // fixtures). A file must match the WHOLE digest to be accepted.
         let expectedFull = network.sha256
         let expectedPrefix = network.shaPrefix
-        guard !expectedFull.isEmpty || !expectedPrefix.isEmpty else {
-            throw LoaderError.invalidNetworkName(network.filename)
-        }
-
         guard let handle = try? FileHandle(forReadingFrom: url) else {
             return false
         }
@@ -519,6 +556,11 @@ public struct StockfishNetworkLoader: Sendable {
     /// `verify_networks()` on the first `go` / `ucinewgame` — terminating the host
     /// process with no Swift error to catch. This converts that into a clean nil.
     public func requiredNetworksSatisfied(in directory: URL) -> Bool {
+        do {
+            try validateManifest()
+        } catch {
+            return false
+        }
         for network in networks {
             let url = directory.appendingPathComponent(network.filename)
             guard (try? verify(fileAt: url, matches: network)) == true else {

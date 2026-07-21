@@ -105,9 +105,9 @@ public enum Source: Sendable, CaseIterable {
 
 ```swift
 public enum LoaderError: Error, Sendable {
-    case checksumMismatch(String)    // a download's SHA-256 didn't match the pinned digest
+    case checksumMismatch(String)    // manifest metadata or bytes didn't match the pinned digest
     case allSourcesFailed(String)    // every source failed for a file
-    case invalidNetworkName(String)  // filename isn't nn-<hex>.nnue
+    case invalidNetworkName(String)  // filename isn't nn-<12 lowercase hex>.nnue
     case fileSystem(String)          // a filesystem operation failed
 }
 ```

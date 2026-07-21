@@ -13,7 +13,7 @@ to manage the engine lifecycle directly.
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/fianchettochess/SwiftStockfish", from: "18.0.0"),
+    .package(url: "https://github.com/fianchettochess/SwiftStockfish", from: "18.0.9"),
 ],
 targets: [
     .target(
@@ -28,6 +28,10 @@ targets: [
 > Important: This package links Stockfish and is therefore a **GPL-3.0** work.
 > Consuming it carries GPL-3.0 obligations on your application. Treat
 > SwiftStockfish as the separately-distributable GPL component.
+
+> Note: The optimized Apple x86_64 binary requires AVX2/BMI2 (Haswell-class or
+> newer), while arm64/arm64_32 builds require ARM FEAT_DotProd. Neither path has
+> a runtime baseline fallback, and the watchOS archive does not include armv7k.
 
 ## Prepare the NNUE networks
 

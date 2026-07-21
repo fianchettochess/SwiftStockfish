@@ -15,30 +15,36 @@ name: CI
 #     which needs the NNUE net files — gitignored, ~107 MB) is NOT run here;
 #     it is correctly skipped when SWIFTSTOCKFISH_INTEGRATION is unset.
 #
-# Runs on every push to `main`, every PR, and every version tag. The live-engine
-# integration suite (a ~107 MB net download + a real engine) runs ONLY on tagged
-# releases, on the self-hosted runner — see the macOS job below — so a plain PR
-# stays fast.
+# Runs on every push to `main`, every PR, and manual dispatch. The release
+# workflow separately rebuilds the artifact and runs the live-engine suite
+# before it creates the one-time release tag.
+#
+# Security: fork pull requests run only on GitHub-hosted Linux. The shared
+# self-hosted Mac runs trusted pushes/manual dispatches and same-repository
+# pull requests, never untrusted fork code.
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
-    tags:
-      - '*.*.*'
   pull_request:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   linux-x86_64:
     name: Linux x86_64 (source build)
     runs-on: ubuntu-latest
-    container: swift:latest
+    timeout-minutes: 30
+    # Exercise the package's declared minimum tools version, not a floating SDK.
+    container: swift:6.0.3-jammy
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: swift build
         run: swift build
       - name: swift test
@@ -46,21 +52,21 @@ jobs:
 
   macos-self-hosted:
     name: macOS — self-hosted (Intel Mac Pro, binary arm)
-    runs-on: [self-hosted, macOS]
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Verify optimized Intel CPU features
+        run: |
+          FEATURES="$(sysctl -n machdep.cpu.leaf7_features)"
+          grep -qw AVX2 <<< "${FEATURES}"
+          grep -qw BMI2 <<< "${FEATURES}"
       - name: swift build
         run: swift build
       - name: swift test
         # Suite 1 (logic) and Suite 2 (filesystem) run unconditionally.
-        # Suite 3 (live engine integration) stays skipped here — it needs
-        # SWIFTSTOCKFISH_INTEGRATION set (see the tagged-release step below).
-        run: swift test
-      - name: swift test — live engine integration (tagged releases only)
-        # On a version tag, run the full suite including Suite 3: it downloads
-        # the real nets via StockfishNetworkLoader.ensure(in:) and drives a live
-        # engine. Confined to tags so PRs/pushes don't pay the 107 MB download.
-        if: startsWith(github.ref, 'refs/tags/')
-        env:
-          SWIFTSTOCKFISH_INTEGRATION: '1'
+        # Suite 3 (live engine integration) stays skipped here; the Release
+        # workflow runs it against the freshly rebuilt macOS arm64 slice. A
+        # shared/cached net fixture is still needed for a non-flaky Intel run.
         run: swift test

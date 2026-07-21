@@ -6,6 +6,10 @@
 #define NNUE_EMBEDDING_OFF
 
 #if defined(__aarch64__) || defined(__arm64__)
+    // Keep Stockfish's optimized ARM NNUE kernel. NEON is baseline on these
+    // architectures, but integer dot-product is not: this emits SDOT with no
+    // runtime dispatch. Packaged/source arm64 and arm64_32 builds therefore
+    // require FEAT_DotProd-capable hardware (documented in the support matrix).
     #define USE_NEON 8
     #define USE_NEON_DOTPROD 1
 #elif defined(__x86_64__)
@@ -50,6 +54,8 @@
     #endif
 #endif
 
-#define IS_64BIT
+#if defined(__LP64__) || defined(_WIN64)
+    #define IS_64BIT
+#endif
 
 #endif

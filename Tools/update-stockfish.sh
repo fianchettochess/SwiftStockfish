@@ -95,5 +95,5 @@ Next steps:
   1. Review the diff:          git status && git diff --stat
   2. Rebuild the xcframework:  Tools/build-xcframework.sh
   3. Run the tests:            swift test
-  4. Commit, then push an N.N.N release tag (CI builds + publishes the binary).
+  4. Commit, then run Actions → Release binary with a new N.N.N version.
 DONE

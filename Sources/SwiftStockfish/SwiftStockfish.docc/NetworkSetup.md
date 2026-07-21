@@ -104,12 +104,12 @@ fishtest is tried first, GitHub as a fallback.
 
 A failed `ensure` throws a ``StockfishNetworkLoader/LoaderError``:
 
-- ``StockfishNetworkLoader/LoaderError/checksumMismatch(_:)`` — a download's
-  SHA-256 did not match the pinned digest.
+- ``StockfishNetworkLoader/LoaderError/checksumMismatch(_:)`` — manifest
+  metadata or downloaded bytes did not match the pinned digest.
 - ``StockfishNetworkLoader/LoaderError/allSourcesFailed(_:)`` — every source
   failed for a file.
-- ``StockfishNetworkLoader/LoaderError/invalidNetworkName(_:)`` — a filename does
-  not follow the `nn-<hex>.nnue` scheme, so it cannot be verified.
+- ``StockfishNetworkLoader/LoaderError/invalidNetworkName(_:)`` — a filename is
+  not exactly `nn-<12 lowercase hex>.nnue`, so it cannot be verified.
 - ``StockfishNetworkLoader/LoaderError/fileSystem(_:)`` — a filesystem operation
   failed.
 

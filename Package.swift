@@ -8,8 +8,10 @@
 // (`URLSession.downloadTask(with:completionHandler:)` rather than the iOS-15
 // async `download(from:)`, `appendingPathComponent(_:)` rather than the iOS-16
 // `appending(path:)`). The prebuilt `Stockfish.xcframework` is compiled with
-// matching minimums (iOS 13.0 / macOS 10.15) — see Tools/build-xcframework.sh;
-// re-run that script (and keep its minimums in sync) when bumping Stockfish.
+// matching OS minimums (iOS 13.0 / macOS 10.15) — see
+// Tools/build-xcframework.sh; re-run that script (and keep its minimums in sync)
+// when bumping Stockfish. The optimized binaries additionally have documented
+// CPU-feature floors: FEAT_DotProd on ARM and AVX2/BMI2 on x86_64.
 //
 // SwiftStockfish — a Swift Package Manager wrapper around the Stockfish chess
 // engine (GPL-3.0). See README.md for the full story; the highlights:
@@ -18,11 +20,14 @@
 //     `Stockfish.xcframework` (the `StockfishEngine` binaryTarget). The
 //     xcframework carries ten slices (ios-arm64, ios-arm64_x86_64-simulator,
 //     ios-arm64_x86_64-maccatalyst, macos-arm64_x86_64, tvos-arm64,
-//     tvos-arm64_x86_64-simulator, watchos-arm64, watchos-arm64_x86_64-simulator,
+//     tvos-arm64_x86_64-simulator, watchos-arm64_arm64_32,
+//     watchos-arm64_x86_64-simulator,
 //     xros-arm64, xros-arm64_x86_64-simulator) — built from the same Stockfish 18
 //     source, with the
-//     per-arch SIMD flags (`-mavx2 -mbmi2` on the x86_64 slices) baked in at
-//     build time. A prebuilt binary needs no per-architecture compile flags, so
+//     per-arch SIMD flags (ARM dot-product, plus `-mavx2 -mbmi2` on x86_64)
+//     baked in at build time. They require FEAT_DotProd-capable ARM hardware or
+//     Haswell-class Intel hardware or newer. A prebuilt binary needs no
+//     per-architecture compile flags, so
 //     this package builds for every supported arch, not just arm64.
 //
 //   * The `CStockfish` target is now BRIDGE-ONLY: it compiles just the small

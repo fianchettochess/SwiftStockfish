@@ -10,12 +10,16 @@
 # Sources/CStockfish/StockfishConfig.h prefix header) and writes the result to
 # Frameworks/Stockfish.xcframework — no dependency on the host app's tree.
 #
-# DEPLOYMENT FLOOR: the slices are compiled at iOS 13.0 / macOS 10.15
+# REQUESTED DEPLOYMENT FLOOR: the slices are compiled at iOS 13.0 / macOS 10.15
 # (Catalina) / tvOS 13.0 / watchOS 6.0 / visionOS 1.0 / Mac Catalyst 13.2 —
 # matching Package.swift's platforms, which are pinned there by Swift-concurrency
 # back-deployment. The engine imposes no OS floor of its own, so these are simply
 # set to the package's minimum. Bump IOS_MIN / MAC_MIN / TVOS_MIN / WATCHOS_MIN /
 # VISIONOS_MIN here in lockstep if Package.swift's platforms ever change.
+# Architecture availability raises a few effective watch floors: arm64_32 device
+# objects retain watchOS 6.0, arm64 device objects start at watchOS 26.0, and the
+# arm64 simulator objects start at watchOS 7.0. The fat slices preserve those
+# per-architecture Mach-O minimums. No legacy armv7k slice is produced.
 #
 # LICENSING: Stockfish is licensed GPL-3. This script — together with the
 # Stockfish source it references (Sources/CStockfish/stockfish) and the
@@ -26,8 +30,8 @@
 #
 # Slices built: iphoneos (arm64), iphonesimulator (arm64,x86_64),
 #               macosx (arm64,x86_64), appletvos (arm64),
-#               appletvsimulator (arm64,x86_64), watchos (arm64; arm64_32
-#               omitted — Series 5+/watchOS 6), watchsimulator (arm64,x86_64),
+#               appletvsimulator (arm64,x86_64), watchos (arm64_32,arm64),
+#               watchsimulator (arm64,x86_64),
 #               xros/visionOS (arm64), xrsimulator (arm64,x86_64), and Mac
 #               Catalyst (arm64,x86_64 via the -macabi triple; no sim slice).
 #
@@ -42,6 +46,17 @@
 # Stockfish.
 #
 set -euo pipefail
+
+# A developer may have `xcode-select` pointed at CommandLineTools even though
+# full Xcode is installed. Use the conventional app bundle without changing
+# their global selection; CI's setup-xcode action already sets DEVELOPER_DIR.
+if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app/Contents/Developer ]; then
+  export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+if ! xcrun --find xcodebuild >/dev/null 2>&1; then
+  echo "error: full Xcode is required (set DEVELOPER_DIR to its Developer directory)" >&2
+  exit 1
+fi
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PKG="$(cd "$HERE/.." && pwd)"
@@ -81,22 +96,23 @@ echo "Translation units: ${#CPP[@]}"
 build_arch() {
   local sdk="$1" arch="$2" minflag="$3"
   local sdkpath; sdkpath="$(xcrun --sdk "$sdk" --show-sdk-path)"
-  # x86_64 needs AVX2 + BMI2 enabled so the intrinsics StockfishConfig.h's
-  # USE_AVX2 / USE_PEXT defines rely on are available — mirrors the app's
-  # OTHER_CPLUSPLUSFLAGS[arch=x86_64] = (-mavx2, -mbmi2). The `-DSF_ENABLE_AVX2`
-  # define UNLOCKS that USE_AVX2/USE_PEXT block in StockfishConfig.h (gated OFF
-  # by default so source builds stay SSE-baseline + .unsafeFlags-free); the
-  # PREBUILT Apple x86_64 slices keep full AVX2 because we pass it here. arm64
-  # NEON/DOTPROD is baseline on Apple clang, so it needs no extra arch flags.
-  # (left unquoted so it word-splits / vanishes when empty)
+  # Preserve the optimized Intel engine: AVX2 + BMI2 enable Stockfish's
+  # compile-time AVX2/PEXT path. This single binary does not runtime-dispatch,
+  # so its documented CPU floor is Haswell-class hardware or newer.
   local extra=""
   [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
   local objdir="$OUT/obj/$sdk-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
-    local o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
+    local o
+    o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
+    # `extra` intentionally expands to three separate compiler arguments on
+    # x86_64 and to no arguments on the other architectures.
+    # shellcheck disable=SC2086
     xcrun --sdk "$sdk" clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
       -include "$PREFIX" -I "$SRC" -I "$CONFIG_DIR" \
+      -ffile-prefix-map="$PKG=/src/SwiftStockfish" \
+      -fdebug-prefix-map="$PKG=/src/SwiftStockfish" \
       -arch "$arch" -isysroot "$sdkpath" "$minflag" $extra
   done
   local lib="$OUT/libStockfish-$sdk-$arch.a"
@@ -119,10 +135,16 @@ build_macabi() {
   [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
   local objdir="$OUT/obj/maccatalyst-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
-    local o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
+    local o
+    o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
+    # `extra` intentionally expands to three separate compiler arguments on
+    # x86_64 and to no arguments on arm64.
+    # shellcheck disable=SC2086
     xcrun --sdk macosx clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
       -include "$PREFIX" -I "$SRC" -I "$CONFIG_DIR" \
+      -ffile-prefix-map="$PKG=/src/SwiftStockfish" \
+      -fdebug-prefix-map="$PKG=/src/SwiftStockfish" \
       --target="$arch-apple-ios13.2-macabi" -isysroot "$sdkpath" $extra
   done
   local lib="$OUT/libStockfish-maccatalyst-$arch.a"
@@ -154,8 +176,10 @@ TVSIM_A="$(build_arch appletvsimulator arm64  "-mtvos-simulator-version-min=$TVO
 TVSIM_X="$(build_arch appletvsimulator x86_64 "-mtvos-simulator-version-min=$TVOS_MIN")"
 TVOS_SIM="$(fat "$OUT/libStockfish-appletvsimulator.a" "$TVSIM_A" "$TVSIM_X")"
 
-echo "== watchos arm64 (Series 5+/watchOS 6; arm64_32 omitted) =="
-WATCHOS_DEV="$(build_arch watchos arm64 "-mwatchos-version-min=$WATCHOS_MIN")"
+echo "== watchos arm64_32 + arm64 device =="
+WATCH_A32="$(build_arch watchos arm64_32 "-mwatchos-version-min=$WATCHOS_MIN")"
+WATCH_A64="$(build_arch watchos arm64    "-mwatchos-version-min=$WATCHOS_MIN")"
+WATCHOS_DEV="$(fat "$OUT/libStockfish-watchos.a" "$WATCH_A32" "$WATCH_A64")"
 
 echo "== watchsimulator arm64 + x86_64 =="
 WSIM_A="$(build_arch watchsimulator arm64  "-mwatchos-simulator-version-min=$WATCHOS_MIN")"
@@ -192,4 +216,8 @@ xcodebuild -create-xcframework \
 
 # Clean the intermediate objects; keep only the framework.
 rm -rf "$OUT"
+if LC_ALL=C grep -aR -F -l -- "$PKG" "$XCF_DIR/Stockfish.xcframework" >/dev/null; then
+  echo "error: local checkout path remains in Stockfish.xcframework: $PKG" >&2
+  exit 1
+fi
 echo "Done: $XCF_DIR/Stockfish.xcframework"

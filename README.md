@@ -23,6 +23,12 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
   arm64 · x86_64 · armv7). WASM is not yet supported. Full matrix + per-platform
   SIMD: [Platform support](#platform-support); cross-compiling the Android arm
   from macOS: [Cross-compiling for Android](#cross-compiling-for-android).
+- The prebuilt Apple **x86_64** slices intentionally retain AVX2/BMI2 performance
+  and require a Haswell-class Intel CPU or newer; there is no runtime baseline
+  fallback in that binary.
+- The optimized **arm64/arm64_32** engine path likewise requires ARM
+  **FEAT_DotProd**. It emits dot-product instructions directly and has no scalar
+  runtime fallback; the watchOS device archive does not include legacy `armv7k`.
 - **Conditional engine delivery (selected by the build host in `Package.swift`).**
   On **Apple** the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
   (10 slices — ios/macos/tvos/watchos/xros/maccatalyst, device + simulator). On
@@ -163,16 +169,16 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 - **Apple — prebuilt `Stockfish.xcframework`** (a `binaryTarget`). The
   xcframework carries **10 slices** — ios/macos/tvos/watchos/xros/maccatalyst,
   device + simulator — all built from the same Stockfish 18 source by
-  `Tools/build-xcframework.sh`. The per-arch SIMD flags (`USE_AVX2` / `USE_PEXT`
-  need `-mavx2 -mbmi2`) are baked into the x86_64 slices at *build* time. A
+  `Tools/build-xcframework.sh`. Apple ARM slices preserve the NEON+DOTPROD path
+  and require FEAT_DotProd-capable hardware; x86_64 preserves the optimized
+  AVX2/PEXT build and requires Haswell-class hardware. A
   prebuilt binary carries no compile flags, so SwiftPM's "can't pass C++ flags
-  per-architecture" limitation never applies — every Apple arch links with full
-  SIMD.
+  per-architecture" limitation never applies.
 - **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
   the bundled Stockfish source + the bridge in the `CStockfish` target (no
-  `sources:`, so SwiftPM builds every `.cpp`). SIMD follows the compiler's own
-  feature predefines: full **NEON** on arm64; on x86_64 the publishable default
-  is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
+  `sources:`, so SwiftPM builds every `.cpp`). The package config selects
+  **NEON+DOTPROD** on arm64 (requiring FEAT_DotProd); on x86_64 the publishable
+  default is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
   [Platform support](#platform-support)). No `.unsafeFlags`, so the source arm is
   version-pinnable too. The bridge is plain C++ (`StockfishBridge.cpp`), so it
   compiles under non-Apple clang with no Objective-C++ runtime.
@@ -194,24 +200,28 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
-| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT |
+| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
 | iOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| tvOS | 13 | prebuilt xcframework | arm64 NEON |
-| watchOS | 6 | prebuilt xcframework | arm64 NEON (use a small `Hash`) |
-| visionOS | 1 | prebuilt xcframework | arm64 NEON |
-| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON · x86_64 AVX2 |
-| Linux arm64 | — | source build | NEON+DOTPROD (baseline, full speed) |
+| tvOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
+| watchOS | 6 | prebuilt xcframework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
+| visionOS | 1 | prebuilt xcframework | arm64 NEON+DOTPROD |
+| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
+| Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
-| Android arm64 | API 28 | source build | NEON+DOTPROD (baseline, full speed) |
+| Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Android x86_64 | API 28 | source build | SSE2/generic default (emulator) |
 | Android armv7 | API 28 | source build | generic |
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
 
-Apple **simulator** x86_64 slices carry AVX2; device slices are arm64/NEON. **CI**
+Apple x86_64 slices intentionally require AVX2/BMI2 (Haswell-class or newer);
+there is no runtime baseline fallback. ARM64/arm64_32 slices similarly emit
+integer dot-product instructions directly and require FEAT_DotProd-capable
+hardware; there is no ARM scalar fallback. The watch device slice starts at
+arm64_32 and therefore does not cover legacy armv7k watches. **CI**
 (`.github/workflows/ci.yml`) builds and tests the Linux x86_64 source arm and
-the macOS binaryTarget arm (self-hosted) on every push to `main`, every PR, and
-every version tag; tagged releases additionally run the live-engine integration
-suite.
+the macOS binaryTarget arm (self-hosted) on pushes to `main`, pull requests, and
+manual dispatches. The manual release workflow separately rebuilds the exact
+artifact and runs the live-engine integration suite before publishing.
 
 **Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that
 are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
@@ -219,8 +229,9 @@ publishable default is the **SSE2 baseline** (Stockfish's generic NNUE — corre
 builds everywhere, version-pinnable, but slower). For full x86_64 speed a consumer
 opts in by passing `-mssse3 -msse4.1 -mpopcnt` (and `-mavx2 -mbmi2 -DSF_ENABLE_AVX2`
 for AVX2) in their own build settings, accepting **revision-pinning** on that
-platform. **arm64** — Linux and Apple — pays nothing: NEON is the architecture
-baseline. **WASM** is deferred: the source arm and the in-memory-queue bridge are already
+platform. **arm64** needs no build flag to select this package's optimized path,
+but that path is intentionally compiled with DOTPROD and therefore requires
+FEAT_DotProd-capable hardware. **WASM** is deferred: the source arm and the in-memory-queue bridge are already
 WASI-compatible, but today's Swift WASM SDK lacks a working multi-threading
 runtime (and defaults to `-fno-exceptions`, while Stockfish uses exceptions).
 Revisit once WASI shared-everything-threads has a shipping runtime — the
@@ -259,67 +270,43 @@ Tools/android/build-android.sh -c release            # release
 ```
 
 The minimum Android API level is **28** (the lowest the Swift Android SDK
-provides). arm64 builds at full NEON speed; the x86_64 emulator slice uses the
-SSE2 baseline. The public C API and Swift surface are byte-for-byte identical to
-every other platform.
+provides). arm64 builds use the optimized NEON+DOTPROD path and therefore require
+FEAT_DotProd; the x86_64 emulator slice uses the SSE2 baseline. The public C API
+and Swift surface are byte-for-byte identical to every other platform.
 
 ## Releasing
 
-Releases are produced by the **`Release binary`** GitHub Actions workflow
-([`.github/workflows/release.yml`](.github/workflows/release.yml)), not by hand.
-It turns the package into a proper **url-based binary-release package**: the
-xcframework is published as a release asset and the binary is no longer carried
-in git.
+Releases are produced by the manual **`Release binary`** GitHub Actions workflow
+([`.github/workflows/release.yml`](.github/workflows/release.yml)), not by pushing
+a tag. In **Actions → Release binary → Run workflow**, choose the current default
+branch and enter a new stable `N.N.N` version. Existing tags and releases are rejected;
+published versions are never re-cut or force-moved.
 
-**To cut a release:** push a semver **tag** (e.g. `git tag 18.0.10 && git push
-origin 18.0.10`) — the push triggers the workflow. *Or*, as a fallback for
-re-cutting a version whose tag already exists, run it manually: **Actions** →
-**Release binary** → **Run workflow** → enter the `version`. Either way the
-workflow runs on `macos-14` and, in one pass:
+The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
 
-1. **Validates the version and checks for collisions** *first* — the version (the
-   pushed tag name, or the dispatch input) must match `N.N.N` (with an optional
-   `.`/`-` suffix) and be a valid git tag name, and the **release** must not
-   already exist. (On manual dispatch the *tag* must not exist either, since the
-   run creates it; on a tag push the tag *is* the trigger and gets force-moved.)
-   A bad or already-released version aborts the run **before** anything is built,
-   so a re-run can't leave half-published state.
-2. Builds `Frameworks/Stockfish.xcframework` by running
-   [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh) in CI (the same
-   multi-arch slices and SIMD flags as a local build; the NNUE nets are **not**
-   needed to build the binary).
-3. Zips it for SwiftPM:
-   `ditto -c -k --sequesterRsrc --keepParent Frameworks/Stockfish.xcframework Stockfish.xcframework.zip`.
-4. Computes the checksum of **that exact zip** with
-   `swift package compute-checksum`.
-5. **Creates the GitHub release** for `<version>` and uploads
-   `Stockfish.xcframework.zip` as its asset, then verifies the asset attached —
-   so the asset the `url:` will point at exists *before* any tag resolves to the
-   url-based manifest.
-6. **Rewrites the active binaryTarget** in `Package.swift` from `path:` to
-   `url:` + `checksum:`, pointing the url at the release asset
-   (`…/releases/download/<version>/Stockfish.xcframework.zip`) with the checksum
-   from step 4, and `swift package dump-package`-validates the result. (Only the
-   active target is touched; the commented example above it is left alone, and
-   the rewrite is idempotent across `path:` and an already-`url:` form — see the
-   rewriter at
-   [`.github/scripts/rewrite_binary_target.py`](.github/scripts/rewrite_binary_target.py).)
-7. **Removes the committed binary**
-   (`git rm -rf --ignore-unmatch Frameworks/Stockfish.xcframework`), deletes
-   the built `Stockfish.xcframework.zip`, and adds both
-   `Frameworks/*.xcframework` and `Stockfish.xcframework.zip` to `.gitignore` —
-   the binary now lives in the release, not the repo.
-8. Commits that url-rewritten / binary-removed tree **on a detached HEAD**, then
-   force-points the `<version>` tag at *that* commit and pushes **only the tag**.
-   **`main` is never pushed** — it keeps its committed binary and stays
-   path-based; the url form lives solely on the tag. (The tag is force-pushed
-   with `GITHUB_TOKEN`, which by GitHub's design doesn't start another workflow
-   run, so a tag-push release can't loop.)
+1. Verifies that it is running from the current default-branch head and that the
+   requested version, tag, and release are unused.
+2. Rebuilds all ten XCFramework slices, asserts every slice's architecture
+   inventory plus the watch per-architecture deployment metadata, and confirms
+   that the x86_64 archive still contains AVX2 and BMI2 instructions.
+3. Runs both the ordinary package suite and the gated live UCI suite against
+   the freshly rebuilt macOS arm64 slice on the hosted runner. The x86_64 slice
+   is architecture/SIMD-validated here and link-tested on Intel CI.
+4. Archives the exact framework, extracts and byte-compares it, and computes its
+   SwiftPM checksum.
+5. On a detached HEAD, rewrites `Package.swift` to the release URL + checksum,
+   removes the committed framework, validates the manifest, and commits only
+   those intended release-tree changes.
+6. Pushes that final commit through a temporary preparation branch, creates a
+   **draft** release targeting it, uploads the asset, verifies the target,
+   downloads and compares the uploaded bytes, and only then publishes. On an
+   ordinary failure, cleanup deletes a draft only after confirming that run owns
+   it; preparation-branch cleanup is likewise best-effort.
 
-Because the checksum and the attached asset are computed from the **same zip in
-the same run**, they always match — there is no build-reproducibility concern,
-and the url exactly matches the asset URL pattern
-`/releases/download/<tag>/Stockfish.xcframework.zip`.
+The semver tag is therefore created once at the final URL-based manifest commit,
+and the exact attached asset was built and tested before publication. **`main`
+is never pushed by the workflow**: it remains path-based with the committed
+framework for ordinary development.
 
 **After the first release**, consumers pin a version tag and SwiftPM fetches the
 xcframework from the release by `url:` + `checksum:` — the package is a clean
@@ -345,8 +332,8 @@ SwiftStockfish/
   Package.swift
   .upstream-version              # pinned upstream sf_* tag
   .github/
-    workflows/ci.yml             # build+test both arms (push to main / PRs / tags; live-engine suite on tags)
-    workflows/release.yml        # "Release binary" workflow (builds + publishes + url-rewrites)
+    workflows/ci.yml             # build+test both arms (push to main / PRs / manual dispatch)
+    workflows/release.yml        # exact-artifact tests + draft publish + one-time release tag
     workflows/upstream-watch.yml # daily notify-only upstream release watcher
     upstream-watch-issue.md      # body template for the watcher's tracking issue
     scripts/rewrite_binary_target.py  # flips the active binaryTarget path: -> url:+checksum: in CI
@@ -400,10 +387,9 @@ SwiftStockfish/
   and the Swift Package Index detect the license correctly); the Stockfish
   attribution and the GPL §5(a) modification notices live in the source files
   and this README, not in `LICENSE`.
-- **Build environment note:** `swift build` fails on an SMB network mount (the
-  index store / module cache rely on atomic `rename()` semantics SMB does not
-  provide). Build on a local disk. This package lives on the local APFS volume
-  for that reason.
+- **Build environment note:** some SMB network mounts do not provide the atomic
+  `rename()` semantics Swift's index store and module cache require. If a build
+  fails there, use a local filesystem with atomic rename support.
 
 ## License
 

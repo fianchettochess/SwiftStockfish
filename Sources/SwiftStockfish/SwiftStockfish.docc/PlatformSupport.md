@@ -14,15 +14,15 @@ delivery path based on the build host.
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
-| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT |
+| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
 | iOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| tvOS | 13 | prebuilt xcframework | arm64 NEON |
-| watchOS | 6 | prebuilt xcframework | arm64 NEON (use a small `Hash`) |
-| visionOS | 1 | prebuilt xcframework | arm64 NEON |
-| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON · x86_64 AVX2 |
-| Linux arm64 | — | source build | NEON+DOTPROD (full speed) |
+| tvOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
+| watchOS | 6 | prebuilt xcframework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
+| visionOS | 1 | prebuilt xcframework | arm64 NEON+DOTPROD |
+| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
+| Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Linux x86_64 | — | source build | SSE2/generic; SSSE3/AVX2 opt-in |
-| Android arm64 | API 28 | source build | NEON+DOTPROD (full speed) |
+| Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Android x86_64 | API 28 | source build | SSE2/generic (emulator) |
 | Android armv7 | API 28 | source build | generic |
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
@@ -31,13 +31,14 @@ delivery path based on the build host.
 
 - **Apple — prebuilt `Stockfish.xcframework`.** A `binaryTarget` with 10 slices
   (ios/macos/tvos/watchos/xros/maccatalyst, device + simulator), all built from
-  the same Stockfish 18 source. Per-arch SIMD flags are baked in at *build* time,
-  so every Apple architecture links with full SIMD and the package carries no
-  per-architecture compile flags.
+  the same Stockfish 18 source. ARM slices preserve NEON+DOTPROD and require
+  FEAT_DotProd-capable hardware; x86_64 preserves the AVX2/PEXT performance path
+  and requires Haswell-class hardware. Neither optimized path runtime-dispatches
+  to a baseline implementation.
 - **Non-Apple (Linux / Android) — compiled from source.** The bridge and all
   Stockfish translation units compile in the `CStockfish` target. SIMD follows
-  the compiler's own feature predefines: full NEON on arm64; on x86_64 the
-  publishable default is the SSE2 baseline (correct and version-pinnable, with
+  the package config: NEON+DOTPROD on arm64 (FEAT_DotProd required); on x86_64
+  the publishable default is the SSE2 baseline (correct and version-pinnable, with
   SSSE3/SSE4.1/AVX2 available as an opt-in).
 
 The package carries **no `.unsafeFlags`**, which is what keeps it
@@ -59,8 +60,9 @@ swift build -Xcxx -mssse3 -Xcxx -msse4.1 -Xcxx -mpopcnt
 swift build -Xcxx -mavx2 -Xcxx -mbmi2 -Xcxx -DSF_ENABLE_AVX2
 ```
 
-**arm64 incurs no opt-in cost** — NEON is the architecture baseline on both
-Linux and Apple.
+**arm64 needs no opt-in flag**, but the selected optimized kernel emits DOTPROD
+instructions and therefore requires FEAT_DotProd-capable hardware. The watchOS
+device slice begins at arm64_32; legacy armv7k watches are not included.
 
 ## Cross-compiling for Android
 
@@ -88,8 +90,8 @@ Tools/android/build-android.sh -c release     # release
 ```
 
 The minimum Android API level is **28** (the lowest the Swift Android SDK
-provides). arm64 builds at full NEON speed; the x86_64 emulator slice uses the
-SSE2 baseline. The public C API and Swift surface are identical to every other
+provides). arm64 builds use NEON+DOTPROD and require FEAT_DotProd; the x86_64
+emulator slice uses the SSE2 baseline. The public C API and Swift surface are identical to every other
 platform.
 
 ## WASM
