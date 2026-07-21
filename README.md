@@ -319,7 +319,9 @@ rejected; published versions are never re-cut or force-moved. The workflow
 derives the allowed `18.0.x` wrapper line from `.upstream-version` and rejects a
 version from another engine line.
 
-The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
+The workflow runs on the trusted self-hosted Intel Mac Pro, pins
+`/Applications/Xcode.app`, refuses any Xcode version other than 26.6, and
+verifies AVX2/BMI2 before building. In one pass, it:
 
 1. Verifies that it is running from the current default-branch head and that the
    requested version, tag, and release are unused.
@@ -327,8 +329,9 @@ The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
    inventory plus the watch per-architecture deployment metadata, and confirms
    that the x86_64 archive still contains AVX2 and BMI2 instructions.
 3. Runs both the ordinary package suite and the gated live UCI suite against
-   the freshly rebuilt macOS arm64 slice on the hosted runner. The x86_64 slice
-   is architecture/SIMD-validated here and link-tested on Intel CI.
+   the freshly rebuilt macOS x86_64 slice on the trusted Intel runner. ARM
+   slices are cross-built and architecture/deployment-validated; Xcode Cloud
+   will provide arm64 runtime coverage once enabled.
 4. Archives the exact framework, extracts and byte-compares it, and computes its
    SwiftPM checksum.
 5. On a detached HEAD, rewrites `Package.swift` to the release URL and checksum,
