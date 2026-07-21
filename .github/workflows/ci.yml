@@ -1,27 +1,14 @@
 name: CI
 
-# Build + test on both arms of the conditional manifest (see Package.swift):
+# Public-safe source-arm CI. This workflow runs on every pull request as well as
+# pushes to `main` and manual dispatches, so every job stays on a fresh
+# GitHub-hosted runner. It compiles CStockfish from scratch with no SIMD flags
+# (USE_SSE2 only via StockfishConfig.h) and guards the generic source path.
 #
-#   * linux-x86_64 — the SOURCE arm (GitHub-hosted ubuntu-latest).
-#     Compiles CStockfish from scratch with no SIMD flags (USE_SSE2 only
-#     via StockfishConfig.h); guards the generic source path.  No
-#     SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE override is needed — linux sets
-#     useBinaryEngine = false automatically.
-#
-#   * macos-self-hosted — the APPLE (binary) arm (self-hosted Intel Mac Pro).
-#     Links the prebuilt Stockfish.xcframework committed under Frameworks/.
-#     No FORCE_SOURCE override.  The xcframework's macos-arm64_x86_64 slice
-#     covers x86_64 (Intel).  This trusted job enables the live engine suite;
-#     its versioned cache downloads the ~107 MB NNUE fixture once and verifies
-#     the nets' full pinned SHA-256 digests before each test process uses them.
-#
-# Runs on every push to `main`, every PR, and manual dispatch. The release
-# workflow separately rebuilds the artifact and runs the live-engine suite
-# before it creates the one-time release tag.
-#
-# Security: fork pull requests run only on GitHub-hosted Linux. The shared
-# self-hosted Mac runs trusted pushes/manual dispatches and same-repository
-# pull requests, never untrusted fork code.
+# The Apple binary arm and live engine suite run separately in
+# `ci-macos-trusted.yml`, whose trigger surface is limited to trusted pushes to
+# `main` and manual dispatches. The release workflow separately rebuilds and
+# tests the exact artifact before it creates the one-time release tag.
 
 on:
   workflow_dispatch:
@@ -49,31 +36,4 @@ jobs:
       - name: swift build
         run: swift build
       - name: swift test
-        run: swift test
-
-  macos-self-hosted:
-    name: macOS — self-hosted (Intel Mac Pro, binary arm)
-    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: [self-hosted, macOS, X64]
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          # The trusted runner owns its workspace; avoid copying its account's
-          # global .gitconfig into the Actions log for safe-directory setup.
-          set-safe-directory: false
-          persist-credentials: false
-      - name: Verify optimized Intel CPU features
-        run: |
-          FEATURES="$(sysctl -n machdep.cpu.leaf7_features)"
-          grep -qw AVX2 <<< "${FEATURES}"
-          grep -qw BMI2 <<< "${FEATURES}"
-      - name: swift build
-        run: swift build
-      - name: swift test — including live engine integration
-        # The job-level trust boundary above excludes fork pull requests. The
-        # live suite shares one serialized, versioned NNUE fixture and reuses
-        # valid cached downloads across runs on this self-hosted machine.
-        env:
-          SWIFTSTOCKFISH_INTEGRATION: '1'
         run: swift test

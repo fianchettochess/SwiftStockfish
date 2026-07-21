@@ -149,10 +149,13 @@ engine, the loader verifies the full pinned SHA-256 digest of both cached
 networks. The first run downloads about 107 MB; later runs reuse valid files.
 
 CI builds the Linux source arm in a digest-pinned snapshot of Swift's
-`nightly-6.4.x-jammy` release-branch image. A trusted self-hosted Intel job verifies AVX2 and
-BMI2 support, links the Apple binary target, and runs the full live suite. Fork
-pull requests run only on the GitHub-hosted Linux job. The release workflow also
-rebuilds and tests the exact XCFramework before publishing it.
+`nightly-6.4.x-jammy` release-branch image. Pull requests run only on that
+GitHub-hosted job. A separate trusted workflow, triggered by pushes to `main`
+and manual dispatches but never by pull requests, verifies Xcode 26.6 build
+17F113, the exact bundled Apple Swift toolchain, and AVX2/BMI2 support on the
+self-hosted Intel Mac. It then links the Apple binary target and runs the full
+live suite. The release workflow also rebuilds and tests the exact XCFramework
+before publishing it.
 
 ## Upgrade workflow: Stockfish 18 to 18.1
 
@@ -319,9 +322,9 @@ rejected; published versions are never re-cut or force-moved. The workflow
 derives the allowed `18.0.x` wrapper line from `.upstream-version` and rejects a
 version from another engine line.
 
-The workflow runs on the trusted self-hosted Intel Mac Pro, pins
-`/Applications/Xcode.app`, refuses any Xcode version other than 26.6, and
-verifies AVX2/BMI2 before building. In one pass, it:
+The workflow runs on the trusted self-hosted Intel Mac Pro, selects
+`/Applications/Xcode.app`, requires Xcode 26.6 build 17F113 and its exact Apple
+Swift 6.3.3 toolchain, and verifies AVX2/BMI2 before building. In one pass, it:
 
 1. Verifies that it is running from the current default-branch head and that the
    requested version, tag, and release are unused.

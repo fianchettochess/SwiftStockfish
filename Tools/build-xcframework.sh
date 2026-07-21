@@ -49,7 +49,7 @@ set -euo pipefail
 
 # A developer may have `xcode-select` pointed at CommandLineTools even though
 # full Xcode is installed. Use the conventional app bundle without changing
-# their global selection; CI's setup-xcode action already sets DEVELOPER_DIR.
+# their global selection; release CI sets DEVELOPER_DIR explicitly.
 if [ -z "${DEVELOPER_DIR:-}" ] && [ -d /Applications/Xcode.app/Contents/Developer ]; then
   export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 fi
