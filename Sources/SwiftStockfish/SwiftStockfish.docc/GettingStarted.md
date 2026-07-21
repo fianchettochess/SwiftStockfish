@@ -27,7 +27,7 @@ targets: [
 
 > Important: This package links Stockfish and is therefore a **GPL-3.0** work.
 > Consuming it carries GPL-3.0 obligations on your application. Treat
-> SwiftStockfish as the separately-distributable GPL component.
+> SwiftStockfish as the separately distributable GPL component.
 
 > Note: The optimized Apple x86_64 binary requires AVX2/BMI2 (Haswell-class or
 > newer), while arm64/arm64_32 builds require ARM FEAT_DotProd. Neither path has
@@ -48,6 +48,7 @@ Subsequent launches find valid networks, and `ensure` becomes a fast,
 checksum-only no-op.
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

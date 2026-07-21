@@ -14,13 +14,13 @@ and it must finish before the engine is created.
 > Important: Stockfish verifies its nets on the first `go`/`ucinewgame` and exits
 > the host process (`exit(EXIT_FAILURE)`) on a missing or invalid net — a
 > process-fatal abort, not a catchable Swift error.
-> ``StockfishEngine/init(networkDirectory:)`` pre-flights the nets and returns
-> `nil` instead of letting that happen, but the pre-flight can only pass if the
+> ``StockfishEngine/init(networkDirectory:)`` preflights the nets and returns
+> `nil` instead of letting that happen, but the preflight can only pass if the
 > directory is already correct — so always `await`
 > ``StockfishNetworkLoader/ensure(in:progress:)`` (or point the engine at a
 > known-good bundled directory) **before**
 > ``StockfishEngine/init(networkDirectory:)``. Raw `CStockfish` consumers get no
-> pre-flight.
+> preflight.
 
 ## The manifest
 
@@ -46,6 +46,7 @@ defaults to ``StockfishNetworks/required``, available afterward as
 ``StockfishNetworkLoader/ensure(in:progress:)``:
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

@@ -26,11 +26,11 @@ over an in-process queue, and the Swift surface is identical on every platform.
     Stockfish verifies its NNUE nets on the first `go`/`ucinewgame` and calls
     `exit(EXIT_FAILURE)` if one is missing or invalid — terminating the
     **entire host process**, not a catchable Swift error.
-    `StockfishEngine.init?` pre-flights the nets and returns `nil` instead of
-    letting that happen, but the pre-flight can only pass if the directory is
+    `StockfishEngine.init?` preflights the nets and returns `nil` instead of
+    letting that happen, but the preflight can only pass if the directory is
     already correct — so always run `StockfishNetworkLoader.ensure(in:)` (and
     `await` it) before `StockfishEngine(networkDirectory:)`. Raw `CStockfish`
-    consumers get no pre-flight.
+    consumers get no preflight.
 
 !!! danger "One engine per process"
     The bridge enforces the single-instance rule with a lifecycle gate: creating a
@@ -43,6 +43,7 @@ over an in-process queue, and the Swift surface is identical on every platform.
 ## Quick start
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 // 1. Ensure the NNUE nets exist BEFORE the engine is created.
@@ -84,4 +85,4 @@ Stockfish is licensed under the **GNU General Public License, version 3**. This
 package ships Stockfish and links it into its output, so the entire SwiftStockfish
 package is a GPL-3.0 work and is distributed under GPL-3.0. If you consume this
 package in an application, that linkage carries GPL-3.0 obligations — treat
-SwiftStockfish as the separately-distributable GPL component.
+SwiftStockfish as the separately distributable GPL component.

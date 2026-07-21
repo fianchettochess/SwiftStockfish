@@ -6,6 +6,7 @@ only the public Swift API.
 ## Setup: loader, engine, and handshake
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 func startEngine() async throws -> StockfishEngine {
@@ -125,6 +126,7 @@ The following script downloads the networks so they can be shipped as applicatio
 resources, avoiding any runtime network access:
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 @main struct FetchNets {

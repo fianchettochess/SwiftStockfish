@@ -25,11 +25,11 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 > Warning: **Run the loader before creating the engine.** Stockfish verifies its
 > NNUE nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if one
 > is missing or invalid — terminating the *entire host process*, not a catchable
-> Swift error. ``StockfishEngine/init(networkDirectory:)`` pre-flights the nets
-> and returns `nil` instead of letting that happen, but the pre-flight can only
+> Swift error. ``StockfishEngine/init(networkDirectory:)`` preflights the nets
+> and returns `nil` instead of letting that happen, but the preflight can only
 > pass if the directory is already correct — so always `await`
 > ``StockfishNetworkLoader/ensure(in:progress:)`` into the engine's network
-> directory first. Raw `CStockfish` consumers get no pre-flight.
+> directory first. Raw `CStockfish` consumers get no preflight.
 
 > Warning: **One engine per process.** The bridge enforces the single-instance
 > rule with a lifecycle gate: creating a second ``StockfishEngine`` blocks the
@@ -40,6 +40,7 @@ This package wraps **Stockfish source version 18** and ships under **GPL-3.0**
 ### Example
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 // 1. Ensure the NNUE nets exist BEFORE the engine is created.

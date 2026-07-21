@@ -5,8 +5,8 @@ for Android.
 
 ## Overview
 
-SwiftStockfish presents a byte-for-byte identical Swift API on every platform,
-but delivers the engine in two ways: a prebuilt xcframework on Apple, and a
+SwiftStockfish presents the same source-level Swift API on every platform,
+but delivers the engine in two ways: a prebuilt XCFramework on Apple, and a
 from-source build everywhere else. `Package.swift` selects the appropriate
 delivery path based on the build host.
 
@@ -14,12 +14,12 @@ delivery path based on the build host.
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
-| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
-| iOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| tvOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| watchOS | 6 | prebuilt xcframework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
-| visionOS | 1 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
+| macOS | 10.15 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
+| iOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| tvOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| watchOS | 6 | prebuilt XCFramework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
+| visionOS | 1 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
 | Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Linux x86_64 | — | source build | SSE2/generic; SSSE3/AVX2 opt-in |
 | Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
@@ -32,7 +32,7 @@ delivery path based on the build host.
 - **Apple — prebuilt `Stockfish.xcframework`.** A `binaryTarget` with 10 slices
   (ios/macos/tvos/watchos/xros/maccatalyst, device + simulator), all built from
   the same Stockfish 18 source. ARM slices preserve NEON+DOTPROD and require
-  FEAT_DotProd-capable hardware; x86_64 preserves the AVX2/PEXT performance path
+  FEAT_DotProd-capable hardware; x86_64 preserves the AVX2/BMI2 (PEXT) path
   and requires Haswell-class hardware. Neither optimized path runtime-dispatches
   to a baseline implementation.
 - **Non-Apple (Linux / Android) — compiled from source.** The bridge and all
@@ -73,7 +73,7 @@ specific to building from a macOS host, all handled by
 
 1. **Force the from-source build.** SwiftPM evaluates `Package.swift` on the
    build host, so on macOS `#if os(macOS)` is true and the manifest would select
-   the Apple xcframework even for an Android target. Set
+   the Apple XCFramework even for an Android target. Set
    `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source delivery path
    (and pull in swift-crypto for the loader's SHA-256) regardless of host.
 2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible —

@@ -7,12 +7,12 @@ networks, and it must complete before the engine is created.
 !!! danger "Order matters"
     Stockfish verifies its nets on the first `go`/`ucinewgame` and exits the host
     process (`exit(EXIT_FAILURE)`) on a missing or invalid net — not a catchable
-    Swift error. `StockfishEngine.init?` pre-flights the nets and returns `nil`
-    instead of letting that happen, but the pre-flight can only pass if the
+    Swift error. `StockfishEngine.init?` preflights the nets and returns `nil`
+    instead of letting that happen, but the preflight can only pass if the
     directory is already correct — so always `await` `ensure(in:)` (or point the
     engine at a known-good bundled directory) **before**
     `StockfishEngine(networkDirectory:)`. Raw `CStockfish` consumers get no
-    pre-flight.
+    preflight.
 
 ## The manifest
 

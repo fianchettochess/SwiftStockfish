@@ -18,6 +18,7 @@ Choose one of two delivery models:
     checksum-only no-op.
 
     ```swift
+    import Foundation
     import SwiftStockfish
 
     let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

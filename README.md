@@ -6,10 +6,10 @@
 [![CI](https://github.com/fianchettochess/SwiftStockfish/actions/workflows/ci.yml/badge.svg)](https://github.com/fianchettochess/SwiftStockfish/actions/workflows/ci.yml)
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
-A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
-chess engine. On **Apple** platforms, the engine links the prebuilt, multi-arch
-`Stockfish.xcframework`; on **Linux**, the same Stockfish source is compiled from
-source.
+A Swift package that wraps the [Stockfish](https://stockfishchess.org) chess
+engine. On **Apple** platforms, the engine links the prebuilt, multi-architecture
+`Stockfish.xcframework`; on **Linux** and **Android**, the bundled Stockfish
+source is compiled directly.
 In both cases, a small C++ bridge in the `CStockfish` target drives Stockfish's
 UCI loop over an in-process queue. The `SwiftStockfish` target provides a Swift
 API (`StockfishEngine`) and a version-aware NNUE network manager
@@ -56,6 +56,7 @@ would begin at `18.1.0`.
 ## Quick start
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 // 1. Create a directory for exactly the NNUE nets the engine needs. This must
@@ -147,8 +148,8 @@ share one persistent, versioned NNUE fixture. Before either test creates an
 engine, the loader verifies the full pinned SHA-256 digest of both cached
 networks. The first run downloads about 107 MB; later runs reuse valid files.
 
-CI builds the Linux source arm in a Swift 6.4 release-branch image pinned by its
-immutable container digest. A trusted self-hosted Intel job verifies AVX2 and
+CI builds the Linux source arm in a digest-pinned snapshot of Swift's
+`nightly-6.4.x-jammy` release-branch image. A trusted self-hosted Intel job verifies AVX2 and
 BMI2 support, links the Apple binary target, and runs the full live suite. Fork
 pull requests run only on the GitHub-hosted Linux job. The release workflow also
 rebuilds and tests the exact XCFramework before publishing it.
@@ -178,8 +179,8 @@ upstream against [`.upstream-version`](.upstream-version)).
    Then **rebuild `Frameworks/Stockfish.xcframework`** with
    [`Tools/build-xcframework.sh`](Tools/build-xcframework.sh) (the
    [`Release binary`](#releasing) workflow runs the same script in CI). The
-   binary is what actually links on Apple platforms — the kept `.cpp` are not
-   compiled there.
+   binary is what actually links on Apple platforms — those `.cpp` files are
+   not compiled there.
 2. Bump `StockfishNetworks.stockfishVersion`.
 3. Update `StockfishNetworks.required` with the new version's net filenames.
    The real filenames live in the engine's `evaluate.h`
@@ -209,9 +210,9 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
   from the same Stockfish 18 source by
   `Tools/build-xcframework.sh`. Apple ARM slices preserve the NEON+DOTPROD path
   and require FEAT_DotProd-capable hardware; x86_64 preserves the optimized
-  AVX2/PEXT build and requires Haswell-class hardware. A
-  prebuilt binary carries no compile flags, so SwiftPM's "can't pass C++ flags
-  per-architecture" limitation never applies.
+  AVX2/BMI2 (PEXT) build and requires Haswell-class hardware. A
+  prebuilt binary carries no compile flags, so SwiftPM's inability to pass C++
+  flags per architecture does not apply.
 - **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
   the bundled Stockfish source and the bridge in the `CStockfish` target (no
   `sources:`, so SwiftPM builds every `.cpp`). The package config selects
@@ -221,29 +222,28 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
   version-pinnable too. The bridge is plain C++ (`StockfishBridge.cpp`), so it
   compiles under non-Apple clang with no Objective-C++ runtime.
 
-- **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target compiles
-  only the C++ bridge and carries **no `.unsafeFlags`**. The SIMD/NNUE
-  config that previously needed a force-included prefix header now lives in the
-  binary; the bridge gets it via a plain `#include "StockfishConfig.h"` (a
-  source include, not a compiler flag). SwiftPM forbids `.unsafeFlags` only in
-  version-pinned *remote* dependencies, so removing them is what makes the
-  package publishable.
+- **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target carries
+  **no `.unsafeFlags`** in either delivery arm. On Apple it compiles only the
+  C++ bridge and links the prebuilt engine; on non-Apple hosts it compiles the
+  bridge and Stockfish together from source. The bridge receives the shared
+  SIMD/NNUE configuration through a plain `#include "StockfishConfig.h"`, not a
+  compiler flag. This keeps version-pinned remote dependencies publishable.
 
-- **GPL source availability.** The Stockfish `.cpp` are kept under
-  `Sources/CStockfish/stockfish/` (their headers feed the bridge's `#include`s);
-  they are simply **excluded from compilation** because the binary already
-  contains them.
+- **GPL source availability.** The Stockfish sources remain under
+  `Sources/CStockfish/stockfish/`. The Apple binary arm excludes their `.cpp`
+  files because the XCFramework already contains the engine; the non-Apple
+  source arm compiles them directly.
 
 ## Platform support
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
-| macOS | 10.15 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
+| macOS | 10.15 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
 | iOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
 | tvOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
 | watchOS | 6 | prebuilt XCFramework | arm64_32 (watchOS 6+) and arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
 | visionOS | 1 | prebuilt XCFramework | arm64 NEON+DOTPROD |
-| Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
+| Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
 | Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
 | Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
@@ -307,7 +307,7 @@ Tools/android/build-android.sh -c release            # release
 The minimum Android API level is **28** (the lowest the Swift Android SDK
 provides). arm64 builds use the optimized NEON+DOTPROD path and therefore require
 FEAT_DotProd; the x86_64 emulator slice uses the SSE2 baseline. The public C API
-and Swift surface are byte-for-byte identical to every other platform.
+and Swift surface are the same source-level API as on every other platform.
 
 ## Releasing
 
@@ -315,7 +315,9 @@ Releases are produced by the manual **Release binary** GitHub Actions workflow
 ([`.github/workflows/release.yml`](.github/workflows/release.yml)), not by pushing
 a tag. In **Actions → Release binary → Run workflow**, choose the current default
 branch and enter a new stable `N.N.N` version. Existing tags and releases are
-rejected; published versions are never re-cut or force-moved.
+rejected; published versions are never re-cut or force-moved. The workflow
+derives the allowed `18.0.x` wrapper line from `.upstream-version` and rejects a
+version from another engine line.
 
 The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
 
@@ -375,13 +377,13 @@ SwiftStockfish/
     build-xcframework.sh         # builds the multi-arch Stockfish.xcframework
     android/build-android.sh     # cross-compiles the source arm for Android
   Sources/
-    CStockfish/                  # bridge-only target (links the engine binary)
+    CStockfish/                  # bridge plus vendored engine source
       include/StockfishBridge.h  # Public umbrella header (publicHeadersPath)
       StockfishConfig.h          # config header, #included by the bridge (no force-include)
       StockfishBridge.cpp        # the bridge: drives Stockfish's UCI loop over an in-process queue
       StockfishIO.h              # in-memory command queue and output callback (portable bridge I/O)
-      stockfish/                 # the copied Stockfish src/ tree: HEADERS feed the
-                                 #   bridge; .cpp kept for GPL but EXCLUDED from build
+      stockfish/                 # copied Stockfish source: .cpp files compile in the
+                                 #   source arm and are excluded in the Apple binary arm
     SwiftStockfish/              # Swift API
       StockfishEngine.swift      # the engine wrapper (AsyncStream of UCI output)
       StockfishNetworks.swift    # the net manifest: version, required filenames, and pinned SHA-256s
@@ -402,7 +404,7 @@ SwiftStockfish/
 - **An extra `.headerSearchPath(".")`** is on the `CStockfish` cxx settings
   (alongside the engine-dir `.headerSearchPath`) so the bridge's
   `#include "StockfishConfig.h"` resolves from the target root. The force-include
-  `.unsafeFlag` that previously also relied on this path was **removed** as part
+  `.unsafeFlags` setting that previously also relied on this path was **removed** as part
   of the binaryTarget migration — the bridge now `#include`s the config as its
   first line, so the target carries no `.unsafeFlags` and is version-publishable.
 - **The bridge's `#include "src/…"` paths were changed to bare includes** (for example,
@@ -430,5 +432,5 @@ Stockfish source kept under `Sources/CStockfish/stockfish/`) and links it into
 its output, so the entire SwiftStockfish package is a GPL-3.0 work and is
 distributed under GPL-3.0. See
 [`LICENSE`](LICENSE). If you consume this package in an application, that
-linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately-
+linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately
 distributable GPL component.

@@ -17,6 +17,7 @@ Run ``StockfishNetworkLoader/ensure(in:progress:)`` first, create the engine wit
 ``StockfishEngine/uci()`` and ``StockfishEngine/isReady()``.
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 func startEngine() async throws -> StockfishEngine {
@@ -160,6 +161,7 @@ A one-off command-line tool downloads the nets so they can be shipped as app
 resources:
 
 ```swift
+import Foundation
 import SwiftStockfish
 
 @main struct FetchNets {

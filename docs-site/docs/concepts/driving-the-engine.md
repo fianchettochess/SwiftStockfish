@@ -121,7 +121,7 @@ block indefinitely.
 
 Two constraints govern the engine lifecycle:
 
-- **Valid nets before creation** — `StockfishEngine.init?` pre-flights the required
+- **Valid nets before creation** — `StockfishEngine.init?` preflights the required
   NNUE nets and returns `nil` if any is missing or invalid, so run the network
   loader first. Driving the raw `CStockfish` bridge yourself has no such guard:
   Stockfish calls `exit(EXIT_FAILURE)` in `verify_networks()` on the first

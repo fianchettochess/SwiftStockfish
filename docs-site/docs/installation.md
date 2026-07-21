@@ -59,7 +59,7 @@ Both products are `.static`.
 !!! warning "GPL-3.0"
     This package links Stockfish and is therefore a **GPL-3.0** work. Consuming it
     carries GPL-3.0 obligations on your application. Treat SwiftStockfish as the
-    separately-distributable GPL component.
+    separately distributable GPL component.
 
 ## `main` vs. release tags
 
@@ -67,7 +67,7 @@ Both products are `.static`.
   `Frameworks/Stockfish.xcframework`), so a plain `swift build` succeeds without
   additional setup.
 - Each **release tag** rewrites that `binaryTarget` to a `url:` + `checksum:`
-  form, pulling the xcframework from the GitHub release asset. This keeps the
+  form, pulling the XCFramework from the GitHub release asset. This keeps the
   binary out of source control and produces a URL-based binary package.
 
 Pin a version tag for a remote dependency; clone `main` for local development.
@@ -88,9 +88,10 @@ swift build
 swift test     # offline logic + filesystem suites (the live-engine suite is gated)
 ```
 
-The default `swift test` run never touches the network. The real-engine UCI
-integration suite is gated behind the `SWIFTSTOCKFISH_INTEGRATION` environment
-variable (it needs a ~107 MB net download and a live engine).
+The default `swift test` run never touches the network. Enable the real-engine
+UCI integration suite only with `SWIFTSTOCKFISH_INTEGRATION=1`; every other
+value leaves it disabled. The suite needs a ~107 MB net download and a live
+engine.
 
 !!! note "Filesystem requirements"
     Some SMB network mounts do not provide the atomic `rename()` semantics
