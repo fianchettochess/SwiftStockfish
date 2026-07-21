@@ -7,22 +7,23 @@
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
 
 A Swift Package Manager wrapper around the [Stockfish](https://stockfishchess.org)
-chess engine. On **Apple** platforms the engine links a **prebuilt, multi-arch
-`Stockfish.xcframework`**; on **Linux** the same Stockfish source is **compiled
-from source**. Either way a small C++ bridge in the `CStockfish` target drives
-Stockfish's UCI loop over an in-process queue. The `SwiftStockfish`
-target exposes a clean Swift API (`StockfishEngine`) plus a version-aware NNUE
-network manager (`StockfishNetworkLoader`).
+chess engine. On **Apple** platforms, the engine links the prebuilt, multi-arch
+`Stockfish.xcframework`; on **Linux**, the same Stockfish source is compiled from
+source.
+In both cases, a small C++ bridge in the `CStockfish` target drives Stockfish's
+UCI loop over an in-process queue. The `SwiftStockfish` target provides a Swift
+API (`StockfishEngine`) and a version-aware NNUE network manager
+(`StockfishNetworkLoader`).
 
-This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
+The package is distributed under **GPL-3.0** because it ships Stockfish. See
 [License](#license).
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
 - Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
-  Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 + arm64) and **Android** (API 28+;
-  arm64 · x86_64 · armv7). WASM is not yet supported. Full matrix + per-platform
-  SIMD: [Platform support](#platform-support); cross-compiling the Android arm
-  from macOS: [Cross-compiling for Android](#cross-compiling-for-android).
+  and Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 and arm64) and **Android**
+  (API 28+; arm64, x86_64, and armv7). WASM is not yet supported. See
+  [Platform support](#platform-support) for the full matrix and
+  [Cross-compiling for Android](#cross-compiling-for-android) for Android setup.
 - The prebuilt Apple **x86_64** slices intentionally retain AVX2/BMI2 performance
   and require a Haswell-class Intel CPU or newer; there is no runtime baseline
   fallback in that binary.
@@ -30,26 +31,34 @@ This whole package is a **GPL-3.0** artifact because it ships Stockfish — see
   **FEAT_DotProd**. It emits dot-product instructions directly and has no scalar
   runtime fallback; the watchOS device archive does not include legacy `armv7k`.
 - **Conditional engine delivery (selected by the build host in `Package.swift`).**
-  On **Apple** the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
-  (10 slices — ios/macos/tvos/watchos/xros/maccatalyst, device + simulator). On
-  **non-Apple** the same Stockfish source is **compiled from source** in the
+  On **Apple**, the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
+  (10 slices covering device and simulator variants of iOS, macOS, Mac Catalyst,
+  tvOS, watchOS, and visionOS). On **non-Apple**, the same Stockfish source is
+  **compiled from source** in the
   `CStockfish` target. The public API and the `CStockfish` product are identical
   either way, and the bridge carries **no `.unsafeFlags`**, so the package stays
-  version-publishable. On `main` the binaryTarget is `path:`-referenced; each
-  release **tag** flips it to a checksummed **`url:`** — see [Releasing](#releasing).
+  version-publishable. On `main`, the binary target uses `path:`; each release
+  tag changes it to a checksum-protected `url:`. See [Releasing](#releasing).
 
 ## Installation
 
+Add SwiftStockfish to your package dependencies:
+
 ```swift
-.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.9")
+.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.10")
 ```
+
+Package versions track the wrapped Stockfish version. Stockfish 18 maps to the
+`18.0.x` series; patch releases contain wrapper, binary, documentation, or test
+changes without changing the engine version. A future Stockfish 18.1 wrapper
+would begin at `18.1.0`.
 
 ## Quick start
 
 ```swift
 import SwiftStockfish
 
-// 1. Make a directory hold exactly the NNUE nets the engine needs. This MUST
+// 1. Create a directory for exactly the NNUE nets the engine needs. This must
 //    happen before the engine is created (see the warning below).
 let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("stockfish-nets")
@@ -74,49 +83,77 @@ engine.send("position startpos")
 engine.send("go depth 20")
 ```
 
-> ⚠️ **Run the loader before creating the engine.** Stockfish verifies its NNUE
+> [!WARNING]
+> **Run the loader before creating the engine.** Stockfish verifies its NNUE
 > nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if one is
-> missing or invalid — terminating the **entire host process**, not a catchable
-> Swift error. `StockfishEngine.init?` pre-flights the nets and returns `nil`
-> instead of letting that happen, but the pre-flight can only pass if the
-> directory is already correct — so always run
+> missing or invalid, terminating the entire host process rather than throwing
+> a catchable Swift error. `StockfishEngine.init?` preflights the nets and
+> returns `nil` instead, but the preflight can pass only when the directory is
+> already correct. Always run
 > `StockfishNetworkLoader.ensure(in:)` (and `await` it) before
 > `StockfishEngine(networkDirectory:)`. Raw `CStockfish` consumers get no
-> pre-flight.
+> preflight.
 
-> ⚠️ **One engine per process.** The bridge swaps the process-global
+> [!WARNING]
+> **Use one engine at a time per process.** The bridge swaps the process-global
 > `std::cin`/`std::cout` stream buffers so Stockfish talks to an in-memory
 > command queue and output callback. The bridge enforces the single-instance
-> rule with a lifecycle gate: creating a second `StockfishEngine` **blocks the
-> calling thread** until the first is fully torn down — so never create or tear
-> down an engine on the main thread/actor, always `shutdown()` (or release) one
-> engine before creating another, and note that a leaked engine hangs the next
-> create forever.
+> rule with a lifecycle gate: creating a second `StockfishEngine` blocks the
+> calling thread until the first is fully torn down. Never create or tear down
+> an engine on the main actor. Call `shutdown()` (or release the engine) before
+> creating another; a leaked engine blocks the next creation indefinitely.
 
-## The two NNUE consumption models
+## NNUE weight provisioning
 
 The NNUE networks are large binaries that are **not** embedded in the compiled
 engine (`StockfishConfig.h` sets `NNUE_EMBEDDING_OFF`); the engine loads them
 from disk at startup. You choose when the loader runs:
 
-**(a) Build/setup time — bundle for an offline app.**
+### Bundle at build time
+
 Run `StockfishNetworkLoader().ensure(in:)` once on your machine (a build step, a
 script, a first-run developer task), then ship the resulting `nn-*.nnue` files
 as bundled app resources. At runtime point the engine at the bundle directory.
 No network access is needed on the user's device. (The package `.gitignore`
 deliberately ignores `*.nnue`, so the nets are fetched, not committed.)
 
-**(b) Runtime — download on first launch.**
+### Download at runtime
+
 Call `ensure(in:)` at app startup into a writable directory (Application
 Support / Caches), show its `Progress` to the user, then create the engine.
 Subsequent launches find the nets already present and valid, so `ensure` is a
 fast no-op (it verifies checksums, downloads nothing).
 
-In **both** models the rule is the same: the loader MUST complete before the
-engine is created — a missing or invalid net fails `StockfishEngine.init?`
-(and raw `CStockfish` consumers risk the process-killing `exit`).
+In both models, the loader must complete before the engine is created. A missing
+or invalid net makes `StockfishEngine.init?` fail; raw `CStockfish` consumers
+risk the process-terminating `exit`.
 
-## Upgrade workflow (e.g. 18 → 18.1)
+## Testing
+
+The default suite is offline and does not download NNUE networks:
+
+```sh
+swift test
+```
+
+Run the live UCI integration suite with the exact opt-in value `1`:
+
+```sh
+SWIFTSTOCKFISH_INTEGRATION=1 swift test
+```
+
+Any other value leaves the live suite disabled. The live tests run serially and
+share one persistent, versioned NNUE fixture. Before either test creates an
+engine, the loader verifies the full pinned SHA-256 digest of both cached
+networks. The first run downloads about 107 MB; later runs reuse valid files.
+
+CI builds the Linux source arm in a Swift 6.4 release-branch image pinned by its
+immutable container digest. A trusted self-hosted Intel job verifies AVX2 and
+BMI2 support, links the Apple binary target, and runs the full live suite. Fork
+pull requests run only on the GitHub-hosted Linux job. The release workflow also
+rebuilds and tests the exact XCFramework before publishing it.
+
+## Upgrade workflow: Stockfish 18 to 18.1
 
 A Stockfish upgrade is a clean, mostly-automatic swap. The daily
 [`Upstream watch`](.github/workflows/upstream-watch.yml) workflow opens a
@@ -149,7 +186,7 @@ upstream against [`.upstream-version`](.upstream-version)).
    (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`); copy them verbatim —
    then compute each new net's full SHA-256 (`shasum -a 256 nn-*.nnue`) and pin
    it as the `sha256:` of the corresponding entry in
-   `StockfishNetworks.required`. The loader verifies the FULL pinned digest
+   `StockfishNetworks.required`. The loader verifies the full pinned digest
    after every download (the filename's 12-hex prefix is only a fallback for
    test fixtures without a pinned hash), so a net that merely matches the
    filename prefix cannot pass.
@@ -159,7 +196,7 @@ old ones** (it deletes any `nn-*.nnue` in the directory that isn't in the
 required set), so a directory that held the 18 nets becomes a directory holding
 exactly the 18.1 nets with no manual cleanup.
 
-## How the engine is built and linked
+## Build model
 
 How the engine is delivered depends on the build host — `Package.swift` selects
 the targets with a host check (`#if os(...)`), which a cross-compile can override
@@ -167,15 +204,16 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 [Cross-compiling for Android](#cross-compiling-for-android)):
 
 - **Apple — prebuilt `Stockfish.xcframework`** (a `binaryTarget`). The
-  xcframework carries **10 slices** — ios/macos/tvos/watchos/xros/maccatalyst,
-  device + simulator — all built from the same Stockfish 18 source by
+  XCFramework carries **10 slices** across iOS, macOS, Mac Catalyst, tvOS,
+  watchOS, and visionOS device and simulator destinations. Every slice is built
+  from the same Stockfish 18 source by
   `Tools/build-xcframework.sh`. Apple ARM slices preserve the NEON+DOTPROD path
   and require FEAT_DotProd-capable hardware; x86_64 preserves the optimized
   AVX2/PEXT build and requires Haswell-class hardware. A
   prebuilt binary carries no compile flags, so SwiftPM's "can't pass C++ flags
   per-architecture" limitation never applies.
 - **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
-  the bundled Stockfish source + the bridge in the `CStockfish` target (no
+  the bundled Stockfish source and the bridge in the `CStockfish` target (no
   `sources:`, so SwiftPM builds every `.cpp`). The package config selects
   **NEON+DOTPROD** on arm64 (requiring FEAT_DotProd); on x86_64 the publishable
   default is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
@@ -200,12 +238,12 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 
 | Platform | Minimum | Engine | SIMD |
 |---|---|---|---|
-| macOS | 10.15 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
-| iOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| tvOS | 13 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| watchOS | 6 | prebuilt xcframework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
-| visionOS | 1 | prebuilt xcframework | arm64 NEON+DOTPROD |
-| Mac Catalyst | 13 | prebuilt xcframework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
+| macOS | 10.15 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2+PEXT (Haswell+) |
+| iOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| tvOS | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| watchOS | 6 | prebuilt XCFramework | arm64_32 (watchOS 6+) and arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
+| visionOS | 1 | prebuilt XCFramework | arm64 NEON+DOTPROD |
+| Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2 (Haswell+) |
 | Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
 | Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
@@ -217,13 +255,9 @@ Apple x86_64 slices intentionally require AVX2/BMI2 (Haswell-class or newer);
 there is no runtime baseline fallback. ARM64/arm64_32 slices similarly emit
 integer dot-product instructions directly and require FEAT_DotProd-capable
 hardware; there is no ARM scalar fallback. The watch device slice starts at
-arm64_32 and therefore does not cover legacy armv7k watches. **CI**
-(`.github/workflows/ci.yml`) builds and tests the Linux x86_64 source arm and
-the macOS binaryTarget arm (self-hosted) on pushes to `main`, pull requests, and
-manual dispatches. The manual release workflow separately rebuilds the exact
-artifact and runs the live-engine integration suite before publishing.
+arm64_32 and therefore does not cover legacy armv7k watches.
 
-**Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that
+**Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need code-generation flags that
 are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
 publishable default is the **SSE2 baseline** (Stockfish's generic NNUE — correct,
 builds everywhere, version-pinnable, but slower). For full x86_64 speed a consumer
@@ -231,8 +265,9 @@ opts in by passing `-mssse3 -msse4.1 -mpopcnt` (and `-mavx2 -mbmi2 -DSF_ENABLE_A
 for AVX2) in their own build settings, accepting **revision-pinning** on that
 platform. **arm64** needs no build flag to select this package's optimized path,
 but that path is intentionally compiled with DOTPROD and therefore requires
-FEAT_DotProd-capable hardware. **WASM** is deferred: the source arm and the in-memory-queue bridge are already
-WASI-compatible, but today's Swift WASM SDK lacks a working multi-threading
+FEAT_DotProd-capable hardware. **WASM** is deferred: the source arm and the
+in-memory queue bridge are already WASI-compatible, but today's Swift WASM SDK
+lacks a working multithreading
 runtime (and defaults to `-fno-exceptions`, while Stockfish uses exceptions).
 Revisit once WASI shared-everything-threads has a shipping runtime — the
 remaining work is the toolchain, not the bridge.
@@ -243,13 +278,13 @@ Android uses the **same `#else` source arm as Linux**, compiled with the
 [Swift Android SDK](https://github.com/swiftlang/swift-android) (install it with
 `skip android sdk install` or swiftly). Verified building
 `aarch64-unknown-linux-android28` against `swift-6.3.2-RELEASE_android` on a macOS
-host — the engine, the bridge, and the Swift API + NNUE loader all compile and
+host — the engine, the bridge, the Swift API, and the NNUE loader all compile and
 archive. Three things are specific to cross-compiling from a macOS host, all
 handled by [`Tools/android/build-android.sh`](Tools/android/build-android.sh):
 
 1. **Force the source arm.** SwiftPM evaluates `Package.swift` on the *build
    host*, so on macOS `#if os(macOS)` is true and the manifest would pick the
-   Apple xcframework arm even for an Android build. Set
+   Apple XCFramework arm even for an Android build. Set
    **`SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1`** to select the from-source arm (and
    pull in swift-crypto for the loader's SHA-256) regardless of host.
 2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible —
@@ -276,11 +311,11 @@ and Swift surface are byte-for-byte identical to every other platform.
 
 ## Releasing
 
-Releases are produced by the manual **`Release binary`** GitHub Actions workflow
+Releases are produced by the manual **Release binary** GitHub Actions workflow
 ([`.github/workflows/release.yml`](.github/workflows/release.yml)), not by pushing
 a tag. In **Actions → Release binary → Run workflow**, choose the current default
-branch and enter a new stable `N.N.N` version. Existing tags and releases are rejected;
-published versions are never re-cut or force-moved.
+branch and enter a new stable `N.N.N` version. Existing tags and releases are
+rejected; published versions are never re-cut or force-moved.
 
 The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
 
@@ -294,7 +329,7 @@ The workflow runs on `macos-26` with Xcode 26.6 and, in one pass:
    is architecture/SIMD-validated here and link-tested on Intel CI.
 4. Archives the exact framework, extracts and byte-compares it, and computes its
    SwiftPM checksum.
-5. On a detached HEAD, rewrites `Package.swift` to the release URL + checksum,
+5. On a detached HEAD, rewrites `Package.swift` to the release URL and checksum,
    removes the committed framework, validates the manifest, and commits only
    those intended release-tree changes.
 6. Pushes that final commit through a temporary preparation branch, creates a
@@ -308,18 +343,12 @@ and the exact attached asset was built and tested before publication. **`main`
 is never pushed by the workflow**: it remains path-based with the committed
 framework for ordinary development.
 
-**After the first release**, consumers pin a version tag and SwiftPM fetches the
-xcframework from the release by `url:` + `checksum:` — the package is a clean
-url-based binary package, with the binary out of git. `main` itself stays
-**path-based** (it links the committed xcframework, which the workflow never
-removes from `main`) so a plain local `swift build` keeps working; only the
-release tags carry the url form. Because every release starts from a clean
-path-based `main`, the workflow is fully re-runnable.
-
-> **`18.0.0`** is already published as a url-based release — consumers pinning
-> `from: "18.0.0"` receive the xcframework via the release asset, not the
-> committed binary. `main` keeps the committed binary (path-based) so a plain
-> local `swift build` works; the url form lives on the release tag only.
+After each release, consumers pin a version tag and SwiftPM fetches the
+XCFramework from the release using the manifest's `url:` and `checksum:`. The
+release tag contains no committed XCFramework. `main` remains path-based and
+links the committed XCFramework, so a plain local `swift build` continues to
+work. Because every release starts from a clean, path-based `main`, the workflow
+is rerunnable.
 
 **NNUE nets** are orthogonal to all of this: keep using `StockfishNetworkLoader`
 at runtime, or bundle the nets as a package resource — the loader's logic is
@@ -333,63 +362,65 @@ SwiftStockfish/
   .upstream-version              # pinned upstream sf_* tag
   .github/
     workflows/ci.yml             # build+test both arms (push to main / PRs / manual dispatch)
-    workflows/release.yml        # exact-artifact tests + draft publish + one-time release tag
+    workflows/release.yml        # exact-artifact tests, draft publish, and one-time release tag
     workflows/upstream-watch.yml # daily notify-only upstream release watcher
     upstream-watch-issue.md      # body template for the watcher's tracking issue
-    scripts/rewrite_binary_target.py  # flips the active binaryTarget path: -> url:+checksum: in CI
+    scripts/rewrite_binary_target.py  # changes the active binaryTarget from path: to URL and checksum
   Frameworks/
-    Stockfish.xcframework        # PREBUILT multi-arch engine — path binaryTarget on `main`;
+    Stockfish.xcframework        # Prebuilt multi-arch engine — path binaryTarget on `main`;
                                  #   a release tag drops it here and serves it from the release asset
   Tools/
-    update-stockfish.sh          # re-vendor upstream at a tag + re-apply local patches
+    update-stockfish.sh          # re-vendor upstream at a tag and re-apply local patches
     patches/                     # the local patches update-stockfish.sh re-applies
     build-xcframework.sh         # builds the multi-arch Stockfish.xcframework
     android/build-android.sh     # cross-compiles the source arm for Android
   Sources/
     CStockfish/                  # bridge-only target (links the engine binary)
-      include/StockfishBridge.h  # PUBLIC umbrella header (publicHeadersPath)
+      include/StockfishBridge.h  # Public umbrella header (publicHeadersPath)
       StockfishConfig.h          # config header, #included by the bridge (no force-include)
       StockfishBridge.cpp        # the bridge: drives Stockfish's UCI loop over an in-process queue
-      StockfishIO.h              # in-memory command queue + output callback (portable bridge I/O)
+      StockfishIO.h              # in-memory command queue and output callback (portable bridge I/O)
       stockfish/                 # the copied Stockfish src/ tree: HEADERS feed the
                                  #   bridge; .cpp kept for GPL but EXCLUDED from build
     SwiftStockfish/              # Swift API
       StockfishEngine.swift      # the engine wrapper (AsyncStream of UCI output)
-      StockfishNetworks.swift    # the net manifest (version + required filenames + pinned SHA-256s)
+      StockfishNetworks.swift    # the net manifest: version, required filenames, and pinned SHA-256s
       StockfishNetworkLoader.swift  # version-aware download / verify / prune
   Tests/
-    SwiftStockfishTests/         # logic + filesystem suites; gated live-engine integration suite
+    SwiftStockfishTests/         # logic and filesystem suites; gated live-engine integration suite
   docs-site/                     # MkDocs documentation site
   README.md
   LICENSE                        # GPL-3.0
   .gitignore
 ```
 
-## Deviations from the original spec
+## Implementation notes
 
-- **swift-tools-version is `6.0`.** Originally chosen because `.macOS(.v15)` /
-  `.iOS(.v18)` require 6.0; the deployment floor was since **lowered to iOS 13 /
-  macOS 10.15** (`.iOS(.v13)` / `.macOS(.v10_15)`, which older tools versions
-  support too — see the manifest header on the Swift-concurrency back-deployment
-  floor), so 6.0 is no longer required by the platform declarations and is simply
-  retained. The spec allowed "5.9 or 6.0".
+- **The Swift tools version is 6.0.** The Apple deployment floor is iOS 13 and
+  macOS 10.15, matching Swift concurrency's back-deployment floor and the
+  minimum versions embedded in the XCFramework.
 - **An extra `.headerSearchPath(".")`** is on the `CStockfish` cxx settings
   (alongside the engine-dir `.headerSearchPath`) so the bridge's
   `#include "StockfishConfig.h"` resolves from the target root. The force-include
   `.unsafeFlag` that previously also relied on this path was **removed** as part
   of the binaryTarget migration — the bridge now `#include`s the config as its
   first line, so the target carries no `.unsafeFlags` and is version-publishable.
-- **The bridge's `#include "src/…"` paths were changed to bare includes** (e.g.
+- **The bridge's `#include "src/…"` paths were changed to bare includes** (for example,
   `#include "bitboard.h"`) to match the new `stockfish/` layout, resolved via the
   `.headerSearchPath("stockfish")`. Noted inline in `StockfishBridge.cpp`.
-- **No `COPYING` file was copied** — Fianchetto's Stockfish `src/` did not
-  contain one. `LICENSE` is the **verbatim, unmodified** GPL-3.0 text (so GitHub
-  and the Swift Package Index detect the license correctly); the Stockfish
-  attribution and the GPL §5(a) modification notices live in the source files
-  and this README, not in `LICENSE`.
+- **`LICENSE` contains the unmodified GPL-3.0 text.** Stockfish attribution and
+  GPL §5(a) modification notices remain in the source and
+  [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 - **Build environment note:** some SMB network mounts do not provide the atomic
   `rename()` semantics Swift's index store and module cache require. If a build
   fails there, use a local filesystem with atomic rename support.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for test, binary-reproduction, licensing,
+and repository-hygiene requirements. Report security issues using the private
+process in [SECURITY.md](SECURITY.md), not a public issue containing sensitive
+details.
 
 ## License
 
