@@ -8,11 +8,12 @@ recompile Stockfish — they just link this binary.
 
 > **CI runs this script too.** The repo's `Release binary` workflow
 > (`.github/workflows/release.yml`) runs `Tools/build-xcframework.sh` on
-> the trusted self-hosted Intel Mac with Xcode 26.6 build 17F113 and its exact
-> Apple Swift 6.3.3 toolchain. It validates and tests that result, then stages a
-> draft release and creates the final tag once at the checksummed `url:`
-> manifest. So this is both the local "regenerate the committed binary" tool
-> and the build step of a release. See the README's
+> the trusted self-hosted Intel Mac with a full Xcode 26.x installation, its
+> Apple Swift 6.x toolchain, and AVX2/BMI2 support. Patch-level toolchain updates
+> are accepted. It validates and tests that result, then stages a draft release
+> and creates the final tag once at the checksummed `url:` manifest. So this is
+> both the local "regenerate the committed binary" tool and the build step of a
+> release. See the README's
 > [Releasing](../README.md#releasing) section.
 
 ## When to re-run
