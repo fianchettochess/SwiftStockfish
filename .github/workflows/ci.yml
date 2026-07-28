@@ -33,6 +33,8 @@ jobs:
     container: swiftlang/swift:nightly-6.4.x-jammy@sha256:cb082661bc53e8deb8a15610396af75b71752b8f62952426b8906847e607af8c
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: verify SIMD configuration
+        run: Tools/verify-simd-config.sh
       - name: swift build
         run: swift build
       - name: swift test

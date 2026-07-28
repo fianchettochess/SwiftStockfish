@@ -10,8 +10,9 @@
 // `appending(path:)`). The prebuilt `Stockfish.xcframework` is compiled with
 // matching OS minimums (iOS 13.0 / macOS 10.15) — see
 // Tools/build-xcframework.sh; re-run that script (and keep its minimums in sync)
-// when bumping Stockfish. The optimized binaries additionally have documented
+// when bumping Stockfish. The prebuilt Apple binary additionally has documented
 // CPU-feature floors: FEAT_DotProd on ARM and AVX2/BMI2 on x86_64.
+// From-source ARM builds default to baseline NEON.
 //
 // SwiftStockfish — a Swift Package Manager wrapper around the Stockfish chess
 // engine (GPL-3.0). See README.md for the full story; the highlights:
@@ -75,6 +76,8 @@ let hostIsApple = false
 #endif
 let useBinaryEngine = hostIsApple
     && Context.environment["SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE"] != "1"
+let sourceDotProdOptIn =
+    Context.environment["SWIFTSTOCKFISH_ENABLE_DOTPROD"] == "1"
 
 // CONDITIONAL ENGINE TARGETS — the manifest's `#if os(...)` evaluates against
 // the BUILD HOST, which is exactly what we want for native builds: a Mac host
@@ -155,7 +158,12 @@ engineTargets = [
             // else it falls back to std::thread. Optional — std::thread also
             // works — but it matches the upstream default on those hosts.
             .define("USE_PTHREADS", .when(platforms: [.linux, .android])),
-        ]
+        ] + (sourceDotProdOptIn ? [
+            // ARM64 source builds intentionally target baseline NEON by
+            // default. Consumers that control their hardware floor may opt
+            // into Stockfish's SDOT kernel without adding unsafe flags.
+            .define("SF_ENABLE_DOTPROD"),
+        ] : [])
     ),
 ]
 }

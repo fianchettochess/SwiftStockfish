@@ -25,10 +25,11 @@ details.
     dispatch to a baseline implementation on older Intel hardware.
 
 !!! note "ARM CPU requirement"
-    The optimized arm64 and arm64_32 engine slices emit ARM dot-product
-    instructions directly and require FEAT_DotProd-capable hardware. They do not
-    runtime-dispatch to a scalar kernel. The watchOS archive starts at arm64_32
-    and does not cover legacy armv7k watches.
+    The prebuilt Apple arm64 and arm64_32 engine slices emit ARM dot-product
+    instructions directly and require FEAT_DotProd-capable hardware. They do
+    not runtime-dispatch to a scalar kernel. From-source ARM64 builds default to
+    baseline NEON. The watchOS archive starts at arm64_32 and does not cover
+    legacy armv7k watches.
 
 ## Add the package
 

@@ -27,9 +27,10 @@ The package is distributed under **GPL-3.0** because it ships Stockfish. See
 - The prebuilt Apple **x86_64** slices intentionally retain AVX2/BMI2 performance
   and require a Haswell-class Intel CPU or newer; there is no runtime baseline
   fallback in that binary.
-- The optimized **arm64/arm64_32** engine path likewise requires ARM
-  **FEAT_DotProd**. It emits dot-product instructions directly and has no scalar
-  runtime fallback; the watchOS device archive does not include legacy `armv7k`.
+- The prebuilt Apple **arm64/arm64_32** slices intentionally retain the
+  **FEAT_DotProd** kernel. They emit dot-product instructions directly and have
+  no runtime fallback; the watchOS device archive does not include legacy
+  `armv7k`. From-source ARM64 builds use baseline NEON by default.
 - **Conditional engine delivery (selected by the build host in `Package.swift`).**
   On **Apple**, the engine links a **prebuilt, multi-arch `Stockfish.xcframework`**
   (10 slices covering device and simulator variants of iOS, macOS, Mac Catalyst,
@@ -219,11 +220,11 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 - **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
   the bundled Stockfish source and the bridge in the `CStockfish` target (no
   `sources:`, so SwiftPM builds every `.cpp`). The package config selects
-  **NEON+DOTPROD** on arm64 (requiring FEAT_DotProd); on x86_64 the publishable
-  default is the **SSE2 baseline** (with SSSE3/SSE4.1/AVX2 as an opt-in — see
-  [Platform support](#platform-support)). No `.unsafeFlags`, so the source arm is
-  version-pinnable too. The bridge is plain C++ (`StockfishBridge.cpp`), so it
-  compiles under non-Apple clang with no Objective-C++ runtime.
+  baseline **NEON** on arm64 and the **SSE2 baseline** on x86_64. DOTPROD on
+  ARM and SSSE3/SSE4.1/AVX2 on x86_64 are explicit opt-ins — see
+  [Platform support](#platform-support). No `.unsafeFlags`, so the source arm
+  is version-pinnable too. The bridge is plain C++ (`StockfishBridge.cpp`), so
+  it compiles under non-Apple clang with no Objective-C++ runtime.
 
 - **Version-publishable (no `.unsafeFlags`).** The `CStockfish` target carries
   **no `.unsafeFlags`** in either delivery arm. On Apple it compiles only the
@@ -247,18 +248,18 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 | watchOS | 6 | prebuilt XCFramework | arm64_32 (watchOS 6+) and arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
 | visionOS | 1 | prebuilt XCFramework | arm64 NEON+DOTPROD |
 | Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
-| Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
+| Linux arm64 | — | source build | NEON baseline; DOTPROD opt-in |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
-| Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
+| Android arm64 | API 28 | source build | NEON baseline; DOTPROD opt-in |
 | Android x86_64 | API 28 | source build | SSE2/generic default (emulator) |
 | Android armv7 | API 28 | source build | generic |
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
 
 Apple x86_64 slices intentionally require AVX2/BMI2 (Haswell-class or newer);
-there is no runtime baseline fallback. ARM64/arm64_32 slices similarly emit
-integer dot-product instructions directly and require FEAT_DotProd-capable
-hardware; there is no ARM scalar fallback. The watch device slice starts at
-arm64_32 and therefore does not cover legacy armv7k watches.
+there is no runtime baseline fallback. Prebuilt Apple ARM64/arm64_32 slices
+similarly emit integer dot-product instructions directly and require
+FEAT_DotProd-capable hardware. The watch device slice starts at arm64_32 and
+therefore does not cover legacy armv7k watches.
 
 **Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need code-generation flags that
 are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
@@ -266,11 +267,25 @@ publishable default is the **SSE2 baseline** (Stockfish's generic NNUE — corre
 builds everywhere, version-pinnable, but slower). For full x86_64 speed a consumer
 opts in by passing `-mssse3 -msse4.1 -mpopcnt` (and `-mavx2 -mbmi2 -DSF_ENABLE_AVX2`
 for AVX2) in their own build settings, accepting **revision-pinning** on that
-platform. **arm64** needs no build flag to select this package's optimized path,
-but that path is intentionally compiled with DOTPROD and therefore requires
-FEAT_DotProd-capable hardware. **WASM** is deferred: the source arm and the
-in-memory queue bridge are already WASI-compatible, but today's Swift WASM SDK
-lacks a working multithreading
+platform.
+
+**Linux/Android arm64 SIMD.** ARM64 source builds default to the architecture's
+baseline NEON instructions. This avoids illegal-instruction failures on valid
+ARM64 devices that do not implement FEAT_DotProd, including devices within the
+Android API 28 support floor. If every deployment target is known to implement
+FEAT_DotProd, opt into Stockfish's faster SDOT kernel explicitly:
+
+```bash
+SWIFTSTOCKFISH_ENABLE_DOTPROD=1 swift build
+```
+
+The opt-in has no effect on non-ARM targets. It does not add `.unsafeFlags`;
+`Package.swift` translates it to the `SF_ENABLE_DOTPROD` C++ define. There is
+no runtime dispatch, so an opted-in binary must not run on a CPU without
+FEAT_DotProd.
+
+**WASM** is deferred: the source arm and the in-memory queue bridge are already
+WASI-compatible, but today's Swift WASM SDK lacks a working multithreading
 runtime (and defaults to `-fno-exceptions`, while Stockfish uses exceptions).
 Revisit once WASI shared-everything-threads has a shipping runtime — the
 remaining work is the toolchain, not the bridge.
@@ -308,9 +323,11 @@ Tools/android/build-android.sh -c release            # release
 ```
 
 The minimum Android API level is **28** (the lowest the Swift Android SDK
-provides). arm64 builds use the optimized NEON+DOTPROD path and therefore require
-FEAT_DotProd; the x86_64 emulator slice uses the SSE2 baseline. The public C API
-and Swift surface are the same source-level API as on every other platform.
+provides). arm64 builds use baseline NEON by default, which is compatible with
+the full ARM64 device range; set `SWIFTSTOCKFISH_ENABLE_DOTPROD=1` only when the
+deployment fleet guarantees FEAT_DotProd. The x86_64 emulator slice uses the
+SSE2 baseline. The public C API and Swift surface are the same source-level API
+as on every other platform.
 
 ## Releasing
 

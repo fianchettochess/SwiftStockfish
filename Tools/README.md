@@ -45,10 +45,10 @@ Produces `Frameworks/Stockfish.xcframework` with ten slices:
 | `xros-arm64` | arm64 (device) |
 | `xros-arm64_x86_64-simulator` | arm64, x86_64 |
 
-Build flags mirror the in-target build exactly: `-std=gnu++20 -O3 -DNDEBUG`,
-the `StockfishConfig.h` prefix header (which defines `NNUE_EMBEDDING_OFF` plus
-the per-arch SIMD configuration: NEON+DOTPROD on ARM and `-mavx2 -mbmi2` on
-the x86_64 slices). The NNUE
+Build flags preserve the prebuilt-binary contract: `-std=gnu++20 -O3 -DNDEBUG`,
+the `StockfishConfig.h` prefix header, `-DSF_ENABLE_DOTPROD` on ARM, and
+`-mavx2 -mbmi2 -DSF_ENABLE_AVX2` on x86_64. From-source ARM builds omit the
+dot-product opt-in and use baseline NEON. The NNUE
 network is **not** embedded — it loads at runtime from a `.nnue` resource, so
 the binary stays small and the net can be swapped without a recompile.
 

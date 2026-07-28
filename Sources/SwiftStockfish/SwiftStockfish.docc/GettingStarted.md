@@ -30,8 +30,9 @@ targets: [
 > SwiftStockfish as the separately distributable GPL component.
 
 > Note: The optimized Apple x86_64 binary requires AVX2/BMI2 (Haswell-class or
-> newer), while arm64/arm64_32 builds require ARM FEAT_DotProd. Neither path has
-> a runtime baseline fallback, and the watchOS archive does not include armv7k.
+> newer), while its arm64/arm64_32 slices require ARM FEAT_DotProd. Neither
+> prebuilt path has a runtime baseline fallback, and the watchOS archive does
+> not include armv7k. From-source ARM64 builds default to baseline NEON.
 
 ## Prepare the NNUE networks
 

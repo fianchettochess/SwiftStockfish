@@ -6,12 +6,20 @@
 #define NNUE_EMBEDDING_OFF
 
 #if defined(__aarch64__) || defined(__arm64__)
-    // Keep Stockfish's optimized ARM NNUE kernel. NEON is baseline on these
-    // architectures, but integer dot-product is not: this emits SDOT with no
-    // runtime dispatch. Packaged/source arm64 and arm64_32 builds therefore
-    // require FEAT_DotProd-capable hardware (documented in the support matrix).
+    // NEON is part of the arm64 ABI baseline, so it is safe in every arm64
+    // source build. Integer dot-product is not: enabling USE_NEON_DOTPROD
+    // emits SDOT with no runtime dispatch and can SIGILL on valid arm64
+    // hardware that predates FEAT_DotProd.
     #define USE_NEON 8
-    #define USE_NEON_DOTPROD 1
+    //
+    // Keep source builds baseline-safe unless the caller explicitly opted in
+    // (SF_ENABLE_DOTPROD) or selected a compiler target that advertises the
+    // feature (__ARM_FEATURE_DOTPROD). The Apple XCFramework build script opts
+    // every ARM slice in explicitly, preserving its established performance
+    // contract and documented CPU floor.
+    #if defined(SF_ENABLE_DOTPROD) || defined(__ARM_FEATURE_DOTPROD)
+        #define USE_NEON_DOTPROD 1
+    #endif
 #elif defined(__x86_64__)
     // SSE2 is the x86-64 ABI baseline: `__SSE2__` is ALWAYS a compiler
     // predefine on this arch, so its intrinsics are always legal codegen and

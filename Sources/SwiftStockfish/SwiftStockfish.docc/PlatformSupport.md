@@ -20,9 +20,9 @@ delivery path based on the build host.
 | watchOS | 6 | prebuilt XCFramework | arm64_32 (watchOS 6+) + arm64 (watchOS 26+), NEON+DOTPROD; no armv7k |
 | visionOS | 1 | prebuilt XCFramework | arm64 NEON+DOTPROD |
 | Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
-| Linux arm64 | — | source build | NEON+DOTPROD (FEAT_DotProd required) |
+| Linux arm64 | — | source build | NEON baseline; DOTPROD opt-in |
 | Linux x86_64 | — | source build | SSE2/generic; SSSE3/AVX2 opt-in |
-| Android arm64 | API 28 | source build | NEON+DOTPROD (FEAT_DotProd required) |
+| Android arm64 | API 28 | source build | NEON baseline; DOTPROD opt-in |
 | Android x86_64 | API 28 | source build | SSE2/generic (emulator) |
 | Android armv7 | API 28 | source build | generic |
 | WASM | — | **unsupported** | — (blocked on WASI threading) |
@@ -37,9 +37,8 @@ delivery path based on the build host.
   to a baseline implementation.
 - **Non-Apple (Linux / Android) — compiled from source.** The bridge and all
   Stockfish translation units compile in the `CStockfish` target. SIMD follows
-  the package config: NEON+DOTPROD on arm64 (FEAT_DotProd required); on x86_64
-  the publishable default is the SSE2 baseline (correct and version-pinnable, with
-  SSSE3/SSE4.1/AVX2 available as an opt-in).
+  the package config: baseline NEON on arm64 and baseline SSE2 on x86_64.
+  DOTPROD on ARM and SSSE3/SSE4.1/AVX2 on x86_64 are explicit opt-ins.
 
 The package carries **no `.unsafeFlags`**, which is what keeps it
 version-publishable as a remote dependency. The Stockfish `.cpp` are kept on disk
@@ -60,9 +59,21 @@ swift build -Xcxx -mssse3 -Xcxx -msse4.1 -Xcxx -mpopcnt
 swift build -Xcxx -mavx2 -Xcxx -mbmi2 -Xcxx -DSF_ENABLE_AVX2
 ```
 
-**arm64 needs no opt-in flag**, but the selected optimized kernel emits DOTPROD
-instructions and therefore requires FEAT_DotProd-capable hardware. The watchOS
-device slice begins at arm64_32; legacy armv7k watches are not included.
+## ARM64 SIMD opt-in (Linux and Android)
+
+ARM64 source builds default to the architecture's baseline NEON instructions.
+This is safe across the full ARM64 device range, including Android API 28
+devices that do not implement FEAT_DotProd. If every deployment target is known
+to implement that feature, opt into Stockfish's faster SDOT kernel:
+
+```bash
+SWIFTSTOCKFISH_ENABLE_DOTPROD=1 swift build
+```
+
+The package translates the environment opt-in to `SF_ENABLE_DOTPROD` without
+adding `.unsafeFlags`. There is no runtime dispatch: do not distribute an
+opted-in build to CPUs without FEAT_DotProd. The prebuilt Apple ARM slices
+remain explicitly opted in and retain their documented CPU floor.
 
 ## Cross-compiling for Android
 
@@ -90,9 +101,10 @@ Tools/android/build-android.sh -c release     # release
 ```
 
 The minimum Android API level is **28** (the lowest the Swift Android SDK
-provides). arm64 builds use NEON+DOTPROD and require FEAT_DotProd; the x86_64
-emulator slice uses the SSE2 baseline. The public C API and Swift surface are identical to every other
-platform.
+provides). arm64 builds use baseline NEON; set
+`SWIFTSTOCKFISH_ENABLE_DOTPROD=1` only for a fleet that guarantees
+FEAT_DotProd. The x86_64 emulator slice uses the SSE2 baseline. The public C API
+and Swift surface are identical to every other platform.
 
 ## WASM
 

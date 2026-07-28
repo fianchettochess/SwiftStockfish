@@ -35,9 +35,11 @@
 #               xros/visionOS (arm64), xrsimulator (arm64,x86_64), and Mac
 #               Catalyst (arm64,x86_64 via the -macabi triple; no sim slice).
 #
-# Flags mirror the original in-target build exactly:
+# Flags mirror the established prebuilt-binary contract:
 #   -std=gnu++20 -O3, the StockfishConfig.h PREFIX header (which sets
-#   NNUE_EMBEDDING_OFF + the per-arch SIMD defines), -DNDEBUG. The NNUE
+#   NNUE_EMBEDDING_OFF + the per-arch SIMD defines), -DNDEBUG. ARM slices
+#   explicitly define SF_ENABLE_DOTPROD; source builds omit that opt-in and
+#   remain compatible with baseline ARM64 CPUs. The NNUE
 #   network is NOT embedded (loaded from the .nnue resource at runtime), so the
 #   binary stays small.
 #
@@ -100,13 +102,17 @@ build_arch() {
   # compile-time AVX2/PEXT path. This single binary does not runtime-dispatch,
   # so its documented CPU floor is Haswell-class hardware or newer.
   local extra=""
-  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
+  if [ "$arch" = "x86_64" ]; then
+    extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
+  elif [ "$arch" = "arm64" ] || [ "$arch" = "arm64_32" ]; then
+    extra="-DSF_ENABLE_DOTPROD"
+  fi
   local objdir="$OUT/obj/$sdk-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
     local o
     o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
     # `extra` intentionally expands to three separate compiler arguments on
-    # x86_64 and to no arguments on the other architectures.
+    # x86_64 and to one explicit dot-product opt-in on ARM architectures.
     # shellcheck disable=SC2086
     xcrun --sdk "$sdk" clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
@@ -132,13 +138,17 @@ build_macabi() {
   local arch="$1"
   local sdkpath; sdkpath="$(xcrun --sdk macosx --show-sdk-path)"
   local extra=""
-  [ "$arch" = "x86_64" ] && extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
+  if [ "$arch" = "x86_64" ]; then
+    extra="-mavx2 -mbmi2 -DSF_ENABLE_AVX2"
+  elif [ "$arch" = "arm64" ]; then
+    extra="-DSF_ENABLE_DOTPROD"
+  fi
   local objdir="$OUT/obj/maccatalyst-$arch"; mkdir -p "$objdir"
   for f in "${CPP[@]}"; do
     local o
     o="$objdir/$(printf '%s' "$f" | tr './' '__').o"
     # `extra` intentionally expands to three separate compiler arguments on
-    # x86_64 and to no arguments on arm64.
+    # x86_64 and to one explicit dot-product opt-in on arm64.
     # shellcheck disable=SC2086
     xcrun --sdk macosx clang++ -c "$SRC/$f" -o "$o" \
       -std=gnu++20 -O3 -DNDEBUG \
