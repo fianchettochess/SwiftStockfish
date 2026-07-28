@@ -36,7 +36,7 @@ details.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.10"),
+    .package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.11"),
 ],
 targets: [
     .target(

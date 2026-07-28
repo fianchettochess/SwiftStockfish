@@ -46,7 +46,7 @@ The package is distributed under **GPL-3.0** because it ships Stockfish. See
 Add SwiftStockfish to your package dependencies:
 
 ```swift
-.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.10")
+.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.11")
 ```
 
 Package versions track the wrapped Stockfish version. Stockfish 18 maps to the
