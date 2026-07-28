@@ -348,19 +348,22 @@ pass, it:
 
 1. Verifies that it is running from the current default-branch head and that the
    requested version, tag, and release are unused.
-2. Rebuilds all ten XCFramework slices, asserts every slice's architecture
+2. Verifies the baseline and dot-product source-engine SIMD configuration, then
+   runs every declared package test—including the live UCI integration
+   suite—against the forced source delivery path.
+3. Rebuilds all ten XCFramework slices, asserts every slice's architecture
    inventory plus the watch per-architecture deployment metadata, and confirms
    that the x86_64 archive still contains AVX2 and BMI2 instructions.
-3. Runs both the ordinary package suite and the gated live UCI suite against
-   the freshly rebuilt macOS x86_64 slice on the trusted Intel runner. ARM
+4. Runs every declared package test, including the live UCI suite, against the
+   freshly rebuilt macOS x86_64 binary slice on the trusted Intel runner. ARM
    slices are cross-built and architecture/deployment-validated; Xcode Cloud
    will provide arm64 runtime coverage once enabled.
-4. Archives the exact framework, extracts and byte-compares it, and computes its
+5. Archives the exact framework, extracts and byte-compares it, and computes its
    SwiftPM checksum.
-5. On a detached HEAD, rewrites `Package.swift` to the release URL and checksum,
+6. On a detached HEAD, rewrites `Package.swift` to the release URL and checksum,
    removes the committed framework, validates the manifest, and commits only
    those intended release-tree changes.
-6. Pushes that final commit through a temporary preparation branch, creates a
+7. Pushes that final commit through a temporary preparation branch, creates a
    **draft** release targeting it, uploads the asset, verifies the target,
    downloads and compares the uploaded bytes, and only then publishes. On an
    ordinary failure, cleanup deletes a draft only after confirming that run owns

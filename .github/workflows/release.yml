@@ -33,7 +33,7 @@ jobs:
     # fianchettochess/SwiftStockfish/.github/workflows/release.yml@refs/heads/main.
     # These generic labels route jobs; they are not an authorization boundary.
     runs-on: [self-hosted, macOS, X64]
-    timeout-minutes: 90
+    timeout-minutes: 120
     steps:
       - name: Checkout default-branch source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -104,6 +104,15 @@ jobs:
       - name: Verify self-hosted toolchain and CPU capabilities
         run: Tools/verify-self-hosted-macos.sh
 
+      - name: Verify source-engine SIMD configuration
+        run: Tools/verify-simd-config.sh
+
+      - name: Test source delivery path — including live engine integration
+        env:
+          SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE: '1'
+          SWIFTSTOCKFISH_INTEGRATION: '1'
+        run: swift test --scratch-path "${RUNNER_TEMP}/swiftstockfish-release-source"
+
       - name: Build exact XCFramework
         run: |
           chmod +x Tools/build-xcframework.sh
@@ -150,13 +159,10 @@ jobs:
           grep -Eq '[[:space:]](pextq|pdepq|mulxq|bzhiq)' "${DISASSEMBLY}"
           rm -f "${DISASSEMBLY}"
 
-      - name: Test the freshly rebuilt binary
-        run: swift test --scratch-path .build-release
-
-      - name: Live Stockfish UCI integration
+      - name: Test rebuilt binary delivery path — including live engine integration
         env:
           SWIFTSTOCKFISH_INTEGRATION: '1'
-        run: swift test --scratch-path .build-release-live
+        run: swift test --scratch-path "${RUNNER_TEMP}/swiftstockfish-release-binary"
 
       - name: Archive and verify the exact asset
         id: checksum
