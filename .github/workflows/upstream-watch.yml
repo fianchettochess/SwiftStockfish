@@ -1,4 +1,4 @@
-name: Upstream watch
+name: SwiftStockfish — Watch upstream Stockfish
 
 # Daily check for a newer upstream Stockfish STABLE release. If upstream's
 # `releases/latest` tag differs from the pinned `.upstream-version`, open ONE
@@ -25,6 +25,7 @@ permissions:
 
 jobs:
   watch:
+    name: SwiftStockfish — compare pinned vs upstream Stockfish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:

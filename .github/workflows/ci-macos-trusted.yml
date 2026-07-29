@@ -1,4 +1,4 @@
-name: Trusted macOS CI
+name: SwiftStockfish — CI (macOS binary arm)
 
 # This workflow executes repository code on a persistent self-hosted machine.
 # Keep its trigger surface limited to trusted default-branch pushes and manual
@@ -21,7 +21,7 @@ env:
 
 jobs:
   macos-self-hosted:
-    name: macOS — self-hosted (Intel Mac Pro, binary arm)
+    name: SwiftStockfish — binary-arm tests (macOS, Intel self-hosted)
     # Public-visibility prerequisite: restrict the organization runner group to
     # fianchettochess/SwiftStockfish/.github/workflows/ci-macos-trusted.yml@refs/heads/main.
     # These generic labels route jobs; they are not an authorization boundary.

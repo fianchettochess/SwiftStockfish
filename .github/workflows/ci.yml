@@ -1,4 +1,4 @@
-name: CI
+name: SwiftStockfish — CI (Linux source build)
 
 # Public-safe source-arm CI. This workflow runs on every pull request as well as
 # pushes to `main` and manual dispatches, so every job stays on a fresh
@@ -25,7 +25,7 @@ permissions:
 
 jobs:
   linux-x86_64:
-    name: Linux x86_64 (source build)
+    name: SwiftStockfish — source-build tests (Linux x86_64)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Pin the Swift 6.4 release-branch snapshot's Jammy image by its immutable
