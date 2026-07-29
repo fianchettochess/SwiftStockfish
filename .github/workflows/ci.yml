@@ -1,11 +1,11 @@
 name: SwiftStockfish — CI (Linux source build)
 
-# Public-safe source-arm CI. This workflow runs on every pull request as well as
+# Public-safe source-engine CI. This workflow runs on every pull request as well as
 # pushes to `main` and manual dispatches, so every job stays on a fresh
 # GitHub-hosted runner. It compiles CStockfish from scratch with no SIMD flags
 # (USE_SSE2 only via StockfishConfig.h) and guards the generic source path.
 #
-# The Apple binary arm and live engine suite run separately in
+# The Apple prebuilt-XCFramework path and live engine suite run separately in
 # `ci-macos-trusted.yml`, whose trigger surface is limited to trusted pushes to
 # `main` and manual dispatches. The release workflow separately rebuilds and
 # tests the exact artifact before it creates the one-time release tag.
@@ -25,17 +25,18 @@ permissions:
 
 jobs:
   linux-x86_64:
-    name: SwiftStockfish — source-build tests (Linux x86_64)
+    name: SwiftStockfish — source-engine tests (Linux x86_64)
     runs-on: ubuntu-latest
     timeout-minutes: 30
     # Pin the Swift 6.4 release-branch snapshot's Jammy image by its immutable
     # multi-architecture digest so the moving nightly tag cannot drift.
     container: swiftlang/swift:nightly-6.4.x-jammy@sha256:cb082661bc53e8deb8a15610396af75b71752b8f62952426b8906847e607af8c
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: verify SIMD configuration
+      - name: Checkout SwiftStockfish
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Verify source-engine SIMD configuration
         run: Tools/verify-simd-config.sh
-      - name: swift build
+      - name: Build source-engine package path
         run: swift build
-      - name: swift test
+      - name: Test source-engine package path
         run: swift test

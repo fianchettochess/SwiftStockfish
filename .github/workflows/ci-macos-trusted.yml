@@ -1,4 +1,4 @@
-name: SwiftStockfish — CI (macOS binary arm)
+name: SwiftStockfish — CI (macOS prebuilt XCFramework)
 
 # This workflow executes repository code on a persistent self-hosted machine.
 # Keep its trigger surface limited to trusted default-branch pushes and manual
@@ -21,14 +21,15 @@ env:
 
 jobs:
   macos-self-hosted:
-    name: SwiftStockfish — binary-arm tests (macOS, Intel self-hosted)
+    name: SwiftStockfish — prebuilt-XCFramework tests (Intel self-hosted macOS, live engine)
     # Public-visibility prerequisite: restrict the organization runner group to
     # fianchettochess/SwiftStockfish/.github/workflows/ci-macos-trusted.yml@refs/heads/main.
     # These generic labels route jobs; they are not an authorization boundary.
     runs-on: [self-hosted, macOS, X64]
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout SwiftStockfish
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # The trusted runner owns its workspace; avoid copying its account's
           # global .gitconfig into the Actions log for safe-directory setup.
@@ -36,9 +37,9 @@ jobs:
           persist-credentials: false
       - name: Verify self-hosted toolchain and CPU capabilities
         run: Tools/verify-self-hosted-macos.sh
-      - name: swift build
+      - name: Build prebuilt-XCFramework package path
         run: swift build
-      - name: swift test — including live engine integration
+      - name: Test prebuilt-XCFramework path with live engine
         # The live suite shares one serialized, versioned NNUE fixture and
         # reuses valid cached downloads across trusted runs on this machine.
         env:
