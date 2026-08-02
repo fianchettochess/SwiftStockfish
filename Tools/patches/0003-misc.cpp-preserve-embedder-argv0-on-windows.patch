@@ -1,0 +1,51 @@
+--- a/misc.cpp
++++ b/misc.cpp
+@@ -485,11 +485,45 @@
+ #ifdef _WIN32
+     pathSeparator = "\\";
+     #ifdef _MSC_VER
++    /*
++      Modified for SwiftStockfish, 2026-08-02 (GPLv3 §5(a) modification notice).
++
++      Change relative to upstream Stockfish sf_18: the `_get_pgmptr()` override
++      below now fires ONLY when argv[0] carries no directory of its own.
++
++      WHY: this engine is embedded, not launched. `sf_create`
++      (StockfishBridge.cpp) has exactly one channel for telling the engine where
++      the caller's NNUE nets live — a synthetic argv[0] of
++      `<netDirectory>/stockfish` handed to `UCIEngine`, from which
++      `Engine::binaryDirectory`, and therefore `Network::load`'s search path,
++      are derived. Upstream's override replaced that argv[0] with the real
++      running image, silently discarding the net directory on Windows only
++      (clang targeting the MSVC ABI defines `_MSC_VER`; every other platform
++      compiles the `#else` arm and honours argv[0] as supplied).
++
++      The failure mode this fixes is quiet and expensive to chase.
++      `Network::load_user_net` returns without a diagnostic when the file is
++      absent, so `uci`, `isready`, `setoption` and `position` all still answer
++      correctly and the engine looks healthy. `verify_networks()` is called
++      lazily, and only from `Engine::go`, `Engine::perft` and
++      `Engine::trace_eval` — so the FIRST search prints five `info string
++      ERROR:` lines and calls `exit(EXIT_FAILURE)`, taking the host process
++      with it.
++
++      UPSTREAM BEHAVIOUR IS PRESERVED. The override exists because a bare
++      `stockfish` typed at a prompt yields an extensionless argv[0] with no
++      directory; that case has no separator and still takes the pgmptr path.
++      When argv[0] DOES carry a directory, only the directory component is ever
++      used, so the missing `.exe` extension is irrelevant there.
++    */
+     // Under windows argv[0] may not have the extension. Also _get_pgmptr() had
+     // issues in some Windows 10 versions, so check returned values carefully.
+-    char* pgmptr = nullptr;
+-    if (!_get_pgmptr(&pgmptr) && pgmptr != nullptr && *pgmptr)
+-        argv0 = pgmptr;
++    if (argv0.find_first_of("\\/") == std::string::npos)
++    {
++        char* pgmptr = nullptr;
++        if (!_get_pgmptr(&pgmptr) && pgmptr != nullptr && *pgmptr)
++            argv0 = pgmptr;
++    }
+     #endif
+ #else
+     pathSeparator = "/";
