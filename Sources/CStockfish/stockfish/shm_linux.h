@@ -116,19 +116,34 @@ class CleanupHooks {
         raise(sig);
     }
 
+    // DIVERGES FROM UPSTREAM STOCKFISH, DELIBERATELY. Upstream also installs
+    // `handle_signal` for twelve fatal signals here. That is right for the
+    // standalone `stockfish` binary and wrong for a library, which is all this
+    // package ever builds.
+    //
+    // The handlers are process-wide, and `sigaction(sig, &sa, nullptr)` passes
+    // no `oldact` -- so the host's handler is not merely overridden, it is
+    // DISCARDED, and chaining back to it is impossible afterwards.
+    //
+    // Embedded in a JVM that is fatal. HotSpot uses SIGSEGV as ordinary control
+    // flow -- implicit null checks, safepoint/handshake polling, stack banging --
+    // and expects to handle those and RESUME. With `handle_signal` installed the
+    // first such signal is treated as a crash instead: it cleans up, restores
+    // SIG_DFL and re-raises, killing the process with exit 139. Because the
+    // death is a re-raise, `si_code` is SI_TKILL, and HotSpot deliberately files
+    // no hs_err report for an externally-sent signal -- so it dies silently,
+    // with no crash log, at whatever the JVM happened to be executing.
+    //
+    // Diagnosed 2026-08-03 from a core dump: the SIGSEGV that killed the desktop
+    // renderCheck was sent by this function's handler, not by a memory fault.
+    //
+    // `std::atexit` is KEPT: it does not touch signal dispositions, and it is
+    // what reclaims the segments on a normal exit. What is given up is cleanup
+    // on an abnormal exit, which can leak a /dev/shm entry after a hard crash.
+    // That is the correct trade for a library: leaking a shm entry is
+    // recoverable, hijacking the host's fatal-signal handling is not.
     static void register_signal_handlers() noexcept {
         std::atexit([]() { SharedMemoryRegistry::cleanup_all(true); });
-
-        constexpr int signals[] = {SIGHUP,  SIGINT,  SIGQUIT, SIGILL, SIGABRT, SIGFPE,
-                                   SIGSEGV, SIGTERM, SIGBUS,  SIGSYS, SIGXCPU, SIGXFSZ};
-
-        struct sigaction sa;
-        sa.sa_handler = handle_signal;
-        sigemptyset(&sa.sa_mask);
-        sa.sa_flags = 0;
-
-        for (int sig : signals)
-            sigaction(sig, &sa, nullptr);
     }
 
    public:
