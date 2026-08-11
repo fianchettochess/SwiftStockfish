@@ -109,7 +109,8 @@ if useBinaryEngine {
 engineTargets = [
     .binaryTarget(
         name: "StockfishEngine",
-        path: "Frameworks/Stockfish.xcframework"
+        url: "https://github.com/fianchettochess/SwiftStockfish/releases/download/18.0.13/Stockfish.xcframework.zip",
+        checksum: "4eb5f4c67f08254d8fe3e59c4f83467bf8548775918b2a4e818950559c73f15c"
     ),
     .target(
         name: "CStockfish",
