@@ -168,26 +168,15 @@ engineTargets = [
 ]
 }
 
-// CRYPTO BACKEND — the NNUE loader verifies downloaded nets with SHA-256.
-// Apple platforms use the OS-provided CryptoKit (no dependency). NON-APPLE
-// hosts have no CryptoKit, so they pull swift-crypto's `Crypto` module, which
-// exposes the identical `SHA256` API. The dependency + the target link are
-// gated on `useBinaryEngine` (an Apple host with no source-build override), so
-// the Apple build never resolves, downloads, or links swift-crypto — the Apple
-// dependency graph is unchanged. A forced source build pulls swift-crypto too.
-let cryptoPackageDeps: [Package.Dependency]
-let cryptoTargetDeps: [Target.Dependency]
-if useBinaryEngine {
-cryptoPackageDeps = []
-cryptoTargetDeps = []
-} else {
-cryptoPackageDeps = [
-    .package(url: "https://github.com/apple/swift-crypto.git", "1.0.0"..<"5.0.0"),
-]
-cryptoTargetDeps = [
-    .product(name: "Crypto", package: "swift-crypto"),
-]
-}
+// SHA-256 BACKEND for NNUE verification. Apple uses the OS-provided CryptoKit
+// (no dependency). NON-APPLE hosts (Android/Linux) use the vendored streaming
+// SHA256 in Sources/SwiftStockfish/SHA256.swift (FIPS 180-4, vector-tested) —
+// no external crypto dependency at all. This also avoids SwiftPM's 6.3.3
+// Android cross-build pruning of the `Crypto` module name, which dropped
+// swift-crypto from the plan ("no such module 'Crypto'"). Both branches now
+// agree: nothing to declare.
+let cryptoPackageDeps: [Package.Dependency] = []
+let cryptoTargetDeps: [Target.Dependency] = []
 
 // DOCC GENERATION — the swift-docc-plugin is a command plugin used only by
 // `swift package generate-documentation`. It adds nothing to the library's own

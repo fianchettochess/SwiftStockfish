@@ -37,15 +37,12 @@ import Foundation
 import FoundationNetworking
 #endif
 // SHA-256 for network verification. Apple ships CryptoKit; non-Apple platforms
-// use swift-crypto's `Crypto`, which exposes the identical `SHA256` API
-// (`SHA256()` / `update(data:)` / `finalize()`), so the call sites below are
-// source-identical on every platform. swift-crypto is declared as a
-// non-Apple-only dependency in Package.swift, so the Apple build never resolves
-// or links it.
+// use the vendored streaming SHA256 (SHA256.swift, FIPS 180-4), which exposes
+// the identical `SHA256()` / `update(data:)` / `finalize()` API, so the call
+// sites below are source-identical on every platform and no external crypto
+// dependency is needed.
 #if canImport(CryptoKit)
 import CryptoKit
-#else
-import Crypto
 #endif
 
 /// Cancellation bridge for the callback-based URLSession API. Parent-task
