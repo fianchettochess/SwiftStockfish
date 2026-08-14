@@ -19,7 +19,8 @@ import Foundation
 #if canImport(CryptoKit)
 import CryptoKit
 #else
-import Crypto
+// 18.0.16: swift-crypto was dropped; non-Apple uses the vendored SHA256
+// (SHA256.swift), which needs no module import -- mirror the loader.
 #endif
 @testable import SwiftStockfish
 
