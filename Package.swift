@@ -178,14 +178,6 @@ engineTargets = [
 let cryptoPackageDeps: [Package.Dependency] = []
 let cryptoTargetDeps: [Target.Dependency] = []
 
-// DOCC GENERATION — the swift-docc-plugin is a command plugin used only by
-// `swift package generate-documentation`. It adds nothing to the library's own
-// dependency graph or its compiled output and is unconditional (it does not
-// touch the engine-sourcing or crypto-backend selection above).
-let doccPluginDeps: [Package.Dependency] = [
-    .package(url: "https://github.com/swiftlang/swift-docc-plugin", from: "1.0.0"),
-]
-
 let package = Package(
     name: "SwiftStockfish",
     platforms: [
@@ -221,15 +213,21 @@ let package = Package(
             targets: ["CStockfish"]
         ),
     ],
-    // swift-crypto on non-Apple hosts (see cryptoPackageDeps) + the DocC plugin.
-    dependencies: cryptoPackageDeps + doccPluginDeps,
+    // swift-crypto is never a dependency of this package (cryptoPackageDeps
+    // is empty on every platform; see the SHA-256 backend note above). The
+    // swift-docc-plugin was removed outright: it is only a dev-time command
+    // plugin, yet every consumer resolve (including the Android bridge, which
+    // forces the source-engine arm) inherited its swift-docc -> swift-crypto
+    // chain and dragged crypto into locks the 6.3.3 planner cannot build.
+    dependencies: cryptoPackageDeps,
     targets: engineTargets + [
         // The Swift-facing API: the engine wrapper + the version-aware NNUE
         // network loader.
         .target(
             name: "SwiftStockfish",
             // `cryptoTargetDeps` is empty on Apple (CryptoKit comes from the OS)
-            // and adds swift-crypto's `Crypto` product on non-Apple hosts.
+            // and would add swift-crypto's `Crypto` product on non-Apple hosts
+            // if it were non-empty; it is empty everywhere (see above).
             dependencies: ["CStockfish"] + cryptoTargetDeps,
             path: "Sources/SwiftStockfish"
         ),
