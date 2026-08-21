@@ -28,12 +28,17 @@ import Foundation
 
 /// A streaming SHA-256 hasher (FIPS 180-4).
 ///
-/// Usage mirrors CryptoKit's `SHA256`:
+/// Usage mirrors CryptoKit's `SHA256`, but is deliberately NOT named
+/// `SHA256`: a same-module type of that name SHADOWS `CryptoKit.SHA256`
+/// at every call site in this module, silently (both digests are
+/// `UInt8` collections, so the code still compiles). That shadowing cost
+/// Apple builds a 26x-289x slowdown on NNUE verification. Callers select
+/// the implementation explicitly -- see `NetworkHasher` in the loader.
 ///
-///     var hasher = SHA256()
+///     var hasher = VendoredSHA256()
 ///     hasher.update(data: chunk)
 ///     let digest: [UInt8] = hasher.finalize() // 32 bytes, big-endian words
-public struct SHA256 {
+public struct VendoredSHA256 {
     /// Initial hash values — the fractional parts of the square roots of the
     /// first eight primes (FIPS 180-4 §5.3.3).
     private var state: [UInt32] = [
@@ -57,6 +62,10 @@ public struct SHA256 {
     /// The < 64 bytes awaiting the next 64-byte block (or the final padding).
     private var buffer: [UInt8] = []
 
+    /// Message schedule (FIPS 180-4 §6.2.2), reused across blocks so the hot
+    /// loop performs no per-block heap allocation.
+    private var w = [UInt32](repeating: 0, count: 64)
+
     /// Total message bytes fed via `update`. Needed for the 64-bit length word
     /// appended during padding.
     private var totalLength: UInt64 = 0
@@ -67,12 +76,39 @@ public struct SHA256 {
     /// full 64-byte blocks are compressed eagerly, so memory stays `Data`-chunk
     /// bounded rather than whole-message bounded.
     public mutating func update(data: Data) {
-        totalLength += UInt64(data.count)
-        buffer.append(contentsOf: data)
-        while buffer.count >= 64 {
-            let block = Array(buffer[..<64])
-            buffer.removeFirst(64)
-            compress(block)
+        guard !data.isEmpty else { return }
+        totalLength &+= UInt64(data.count)
+        data.withUnsafeBytes { raw in
+            guard let base = raw.baseAddress?.assumingMemoryBound(to: UInt8.self)
+            else { return }
+            let count = raw.count
+            var offset = 0
+
+            // Top up a partial block carried over from a previous call.
+            if !buffer.isEmpty {
+                let take = min(64 - buffer.count, count)
+                buffer.append(contentsOf: UnsafeBufferPointer(start: base, count: take))
+                offset = take
+                guard buffer.count == 64 else { return }
+                let carried = buffer
+                buffer.removeAll(keepingCapacity: true)
+                carried.withUnsafeBufferPointer { compress($0.baseAddress!) }
+            }
+
+            // Compress whole blocks in place. Advancing an offset — rather than
+            // draining a growing array with `removeFirst`, which memmoves the
+            // remainder once per block and makes hashing quadratic in the chunk
+            // size — is what keeps this linear.
+            while count - offset >= 64 {
+                compress(base + offset)
+                offset &+= 64
+            }
+
+            // Carry the sub-block remainder into the next call.
+            if offset < count {
+                buffer.append(contentsOf: UnsafeBufferPointer(start: base + offset,
+                                                              count: count - offset))
+            }
         }
     }
 
@@ -90,7 +126,7 @@ public struct SHA256 {
         while !buffer.isEmpty {
             let block = Array(buffer[..<min(64, buffer.count)])
             buffer.removeFirst(block.count)
-            compress(block)
+            block.withUnsafeBufferPointer { compress($0.baseAddress!) }
         }
         var digest: [UInt8] = []
         digest.reserveCapacity(32)
@@ -108,10 +144,7 @@ public struct SHA256 {
     }
 
     /// Compresses one 64-byte block into `state` (FIPS 180-4 §6.2.2).
-    private mutating func compress(_ block: [UInt8]) {
-        precondition(block.count == 64)
-
-        var w = [UInt32](repeating: 0, count: 64)
+    private mutating func compress(_ block: UnsafePointer<UInt8>) {
         for i in 0..<16 {
             let base = i * 4
             w[i] = (UInt32(block[base]) << 24)

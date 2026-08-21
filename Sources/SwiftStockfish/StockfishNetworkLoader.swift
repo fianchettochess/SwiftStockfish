@@ -45,6 +45,17 @@ import FoundationNetworking
 import CryptoKit
 #endif
 
+/// The SHA-256 implementation used to verify NNUE nets. Apple platforms get
+/// CryptoKit's hardware-accelerated hasher; everywhere else falls back to the
+/// vendored FIPS 180-4 implementation. This alias is deliberate and explicit:
+/// naming the vendored type `SHA256` instead would shadow `CryptoKit.SHA256`
+/// here without any diagnostic.
+#if canImport(CryptoKit)
+typealias NetworkHasher = CryptoKit.SHA256
+#else
+typealias NetworkHasher = VendoredSHA256
+#endif
+
 /// Cancellation bridge for the callback-based URLSession API. Parent-task
 /// cancellation can race task creation, so the state and task reference share
 /// one lock. Deliberate twin of SwiftReckless's RecklessDownloadTaskBox —
@@ -478,7 +489,51 @@ public struct StockfishNetworkLoader: Sendable {
         }
     }
 
+/// Process-wide memo of nets that have already passed full-digest verification.
+///
+/// `StockfishEngine.init` pre-flights the required nets on EVERY creation, and
+/// the big net is ~109 MB. Without this memo each engine creation re-reads and
+/// re-hashes ~112 MB: ~0.5 s with CryptoKit, and 14 s (release) to 153 s
+/// (debug) with the vendored hasher on platforms that have no CryptoKit.
+///
+/// The key includes size and modification date, so a net that is replaced,
+/// truncated, or corrupted on disk misses the memo and is verified again from
+/// scratch. Only successful verifications are recorded -- a mismatch is cheap
+/// to re-detect and must never be sticky.
+private final class VerifiedNetworkCache: @unchecked Sendable {
+    static let shared = VerifiedNetworkCache()
+
+    private let lock = NSLock()
+    private var verified = Set<String>()
+
+    /// Identity that changes whenever the file's bytes could have changed, or
+    /// whenever the digest we expect of it changes. `nil` when the file cannot
+    /// be stat'ed, which forces the slow path.
+    static func identity(for url: URL, expecting digest: String) -> String? {
+        guard let attributes = try? FileManager.default
+                .attributesOfItem(atPath: url.path),
+              let size = (attributes[.size] as? NSNumber)?.uint64Value
+        else { return nil }
+        let modified = (attributes[.modificationDate] as? Date)?
+            .timeIntervalSinceReferenceDate ?? .nan
+        return "\(url.path)|\(size)|\(modified)|\(digest)"
+    }
+
+    func isVerified(_ identity: String) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return verified.contains(identity)
+    }
+
+    func record(_ identity: String) {
+        lock.lock()
+        defer { lock.unlock() }
+        verified.insert(identity)
+    }
+}
+
     // MARK: - Verification
+
 
     /// Validate caller-supplied manifest data before using its filename to
     /// construct a filesystem path or source URL.
@@ -523,6 +578,15 @@ public struct StockfishNetworkLoader: Sendable {
         // fixtures). A file must match the WHOLE digest to be accepted.
         let expectedFull = network.sha256
         let expectedPrefix = network.shaPrefix
+        // A net that already matched this expected digest, at this size and
+        // modification date, in this process needs no second full read+hash.
+        let identity = VerifiedNetworkCache.identity(
+            for: url,
+            expecting: expectedFull.isEmpty ? expectedPrefix : expectedFull
+        )
+        if let identity, VerifiedNetworkCache.shared.isVerified(identity) {
+            return true
+        }
         guard let handle = try? FileHandle(forReadingFrom: url) else {
             return false
         }
@@ -532,7 +596,7 @@ public struct StockfishNetworkLoader: Sendable {
         // which is above this package's 10.15.0 floor.
         defer { handle.closeFile() }
 
-        var hasher = SHA256()
+        var hasher = NetworkHasher()
         while true {
             let chunk = handle.readData(ofLength: 1 << 20)
             if chunk.isEmpty { break }
@@ -540,8 +604,11 @@ public struct StockfishNetworkLoader: Sendable {
         }
         let digest = hasher.finalize()
         let hex = digest.map { String(format: "%02x", $0) }.joined()
-        if !expectedFull.isEmpty { return hex == expectedFull }
-        return hex.hasPrefix(expectedPrefix)
+        let matched = expectedFull.isEmpty
+            ? hex.hasPrefix(expectedPrefix)
+            : hex == expectedFull
+        if matched, let identity { VerifiedNetworkCache.shared.record(identity) }
+        return matched
     }
 
     /// A non-downloading pre-flight: `true` iff every required network is present
