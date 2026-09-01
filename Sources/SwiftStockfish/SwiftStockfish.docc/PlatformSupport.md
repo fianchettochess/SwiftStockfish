@@ -35,7 +35,7 @@ delivery path based on the build host.
   FEAT_DotProd-capable hardware; x86_64 preserves the AVX2/BMI2 (PEXT) path
   and requires Haswell-class hardware. Neither optimized path runtime-dispatches
   to a baseline implementation.
-- **Non-Apple (Linux / Android) — compiled from source.** The bridge and all
+- **Non-Apple (Linux / Windows / Android) — compiled from source.** The bridge and all
   Stockfish translation units compile in the `CStockfish` target. SIMD follows
   the package config: baseline NEON on arm64 and baseline SSE2 on x86_64.
   DOTPROD on ARM and SSSE3/SSE4.1/AVX2 on x86_64 are explicit opt-ins.
@@ -45,7 +45,7 @@ version-publishable as a remote dependency. The Stockfish `.cpp` are kept on dis
 for GPL source-availability but excluded from compilation on Apple (the binary
 already contains them).
 
-## x86_64 SIMD opt-in (Linux)
+## x86_64 SIMD opt-in (Linux and Windows)
 
 AVX2/BMI2 — and even SSSE3/SSE4.1 — need codegen flags that are `.unsafeFlags` in
 SwiftPM, which would break remote version-pinning, so the publishable default is

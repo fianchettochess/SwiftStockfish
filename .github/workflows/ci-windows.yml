@@ -167,6 +167,14 @@ jobs:
           reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
           git config --system core.longpaths true
 
+      # The SIMD contract, on the platform it now actually covers. Cheap
+      # (preprocess-only) and it is the check that says what a Windows consumer
+      # gets by default — SSE2, because anything above needs codegen flags that
+      # are .unsafeFlags in SwiftPM and would break version-pinning.
+      - name: Verify source-engine SIMD configuration
+        shell: bash
+        run: bash Tools/verify-simd-config.sh
+
       - name: Build
         run: swift build
 

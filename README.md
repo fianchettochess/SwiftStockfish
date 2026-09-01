@@ -8,7 +8,7 @@
 
 A Swift package that wraps the [Stockfish](https://stockfishchess.org) chess
 engine. On **Apple** platforms, the engine links the prebuilt, multi-architecture
-`Stockfish.xcframework`; on **Linux** and **Android**, the bundled Stockfish
+`Stockfish.xcframework`; on **Linux**, **Windows** and **Android**, the bundled Stockfish
 source is compiled directly.
 In both cases, a small C++ bridge in the `CStockfish` target drives Stockfish's
 UCI loop over an in-process queue. The `SwiftStockfish` target provides a Swift
@@ -20,8 +20,8 @@ The package is distributed under **GPL-3.0** because it ships Stockfish. See
 
 - Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
 - Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
-  and Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 and arm64) and **Android**
-  (API 28+; arm64, x86_64, and armv7). WASM is not yet supported. See
+  and Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 and arm64), **Windows** (x86_64), and
+  **Android** (API 28+; arm64, x86_64, and armv7). WASM is not yet supported. See
   [Platform support](#platform-support) for the full matrix and
   [Cross-compiling for Android](#cross-compiling-for-android) for Android setup.
 - The prebuilt Apple **x86_64** slices intentionally retain AVX2/BMI2 performance
@@ -218,7 +218,7 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
   AVX2/BMI2 (PEXT) build and requires Haswell-class hardware. A
   prebuilt binary carries no compile flags, so SwiftPM's inability to pass C++
   flags per architecture does not apply.
-- **Non-Apple (Linux / Android) — compiled from source.** The `#else` arm compiles
+- **Non-Apple (Linux / Windows / Android) — compiled from source.** The `#else` arm compiles
   the bundled Stockfish source and the bridge in the `CStockfish` target (no
   `sources:`, so SwiftPM builds every `.cpp`). The package config selects
   baseline **NEON** on arm64 and the **SSE2 baseline** on x86_64. DOTPROD on
@@ -251,6 +251,7 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 | Mac Catalyst | 13 | prebuilt XCFramework | arm64 NEON+DOTPROD · x86_64 AVX2/BMI2 (PEXT, Haswell+) |
 | Linux arm64 | — | source build | NEON baseline; DOTPROD opt-in |
 | Linux x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
+| Windows x86_64 | — | source build | SSE2/generic default; SSSE3/AVX2 opt-in |
 | Android arm64 | API 28 | source build | NEON baseline; DOTPROD opt-in |
 | Android x86_64 | API 28 | source build | SSE2/generic default (emulator) |
 | Android armv7 | API 28 | source build | generic |
@@ -262,7 +263,7 @@ similarly emit integer dot-product instructions directly and require
 FEAT_DotProd-capable hardware. The watch device slice starts at arm64_32 and
 therefore does not cover legacy armv7k watches.
 
-**Linux x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need code-generation flags that
+**Linux and Windows x86_64 SIMD.** AVX2/BMI2 — and even SSSE3/SSE4.1 — need code-generation flags that
 are `.unsafeFlags` in SwiftPM, which would break remote version-pinning. So the
 publishable default is the **SSE2 baseline** (Stockfish's generic NNUE — correct,
 builds everywhere, version-pinnable, but slower). For full x86_64 speed a consumer
