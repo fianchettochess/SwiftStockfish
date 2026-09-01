@@ -30,12 +30,8 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
-#if canImport(CryptoKit)
-import CryptoKit
-#else
-// 18.0.16: swift-crypto was dropped; non-Apple uses the vendored SHA256
-// (SHA256.swift), which needs no module import -- mirror the loader.
-#endif
+// SHA-256 for the fixture hashing assertion lives in TestSHA256.swift, which
+// mirrors the loader's NetworkHasher seam on every platform.
 @testable import SwiftStockfish
 
 @Suite("StockfishNetworkLoader cancellation (hermetic)")
@@ -137,9 +133,7 @@ struct StockfishNetworkLoaderCancellationTests {
     @Test("a stubbed successful download stages, verifies, installs, and removes the .part staging file")
     func successfulDownloadInstallsAndCleansStaging() async throws {
         let content = Data("swiftstockfish-hermetic-download-fixture".utf8)
-        let prefix12 = String(
-            SHA256.hash(data: content).map { String(format: "%02x", $0) }.joined().prefix(12)
-        )
+        let prefix12 = String(sha256Hex(content).prefix(12))
         let net = StockfishNetworks.Network(filename: "nn-\(prefix12).nnue")
 
         let spy = TransportSpy()

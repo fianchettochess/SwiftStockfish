@@ -14,14 +14,8 @@
 
 import Testing
 import Foundation
-// SHA-256 for the synthetic-net hashing assertion: CryptoKit on Apple,
-// swift-crypto's `Crypto` (same `SHA256` API) on non-Apple. See Package.swift.
-#if canImport(CryptoKit)
-import CryptoKit
-#else
-// 18.0.16: swift-crypto was dropped; non-Apple uses the vendored SHA256
-// (SHA256.swift), which needs no module import -- mirror the loader.
-#endif
+// SHA-256 for the synthetic-net hashing assertion lives in TestSHA256.swift,
+// which mirrors the loader's NetworkHasher seam on every platform.
 @testable import SwiftStockfish
 
 @Suite("StockfishNetworkLoader (offline)")
@@ -35,10 +29,7 @@ struct StockfishNetworkLoaderTests {
 
     /// The 12-hex SHA-256 prefix of `syntheticContent`.
     private static var syntheticPrefix: String {
-        let hex = SHA256.hash(data: syntheticContent)
-            .map { String(format: "%02x", $0) }
-            .joined()
-        return String(hex.prefix(12))
+        return String(sha256Hex(syntheticContent).prefix(12))
     }
 
     /// A network whose filename matches `syntheticContent`'s real SHA prefix.
