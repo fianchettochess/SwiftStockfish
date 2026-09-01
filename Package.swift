@@ -163,7 +163,15 @@ engineTargets = [
             // default. Consumers that control their hardware floor may opt
             // into Stockfish's SDOT kernel without adding unsafe flags.
             .define("SF_ENABLE_DOTPROD"),
-        ] : [])
+        ] : []) + (hostIsApple ? [] : [
+            // NON-APPLE x86_64 builds: enable AVX2/BMI2 SIMD for Windows and Linux.
+            // The prebuilt Apple xcframework already has these baked in, but
+            // from-source builds need the flags explicitly.
+            // Note: These flags require Haswell-class Intel hardware or newer.
+            // Users must pass -mavx2 -mbmi2 externally to enable AVX2 codegen.
+            // Example: swift build -Xcxx -mavx2 -Xcxx -mbmi2 -Xcxx -DSF_ENABLE_AVX2
+            .define("SF_ENABLE_AVX2", .when(platforms: [.windows, .linux])),
+        ])
     ),
 ]
 }
