@@ -20,6 +20,12 @@
 
 import Testing
 import Foundation
+// URLSession and friends are in FoundationNetworking on Linux and Windows,
+// where swift-corelibs-foundation splits them out; on Apple they are part of
+// Foundation. Same guard the loader itself carries.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import SwiftStockfish
 
 /// One persistent, hash-verified NNUE fixture for the entire live test process.

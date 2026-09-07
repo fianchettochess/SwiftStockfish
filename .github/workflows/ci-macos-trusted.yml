@@ -26,7 +26,10 @@ jobs:
     # fianchettochess/SwiftStockfish/.github/workflows/ci-macos-trusted.yml@refs/heads/main.
     # These generic labels route jobs; they are not an authorization boundary.
     runs-on: [self-hosted, macOS, X64]
-    timeout-minutes: 30
+    # 30 was right when the framework was committed and this job only built
+    # and tested. It now builds all ten slices first; the release job, which
+    # does that plus both test arms and the upload, takes about 17 minutes.
+    timeout-minutes: 60
     steps:
       - name: Checkout SwiftStockfish
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +40,15 @@ jobs:
           persist-credentials: false
       - name: Verify self-hosted toolchain and CPU capabilities
         run: Tools/verify-self-hosted-macos.sh
+      # main is PATH MODE: the binaryTarget points at Frameworks/Stockfish.xcframework,
+      # and since "Stop committing the xcframework" that file is gitignored and
+      # absent from a fresh checkout. Without this step `swift build` fails at
+      # manifest load with "local binary target 'StockfishEngine' ... does not
+      # contain a binary artifact" — which is what happened on every run of this
+      # job from that commit onward. Consumers never need it: they pin a version
+      # and SwiftPM fetches the release asset from the URL-mode manifest.
+      - name: Build the XCFramework this checkout does not carry
+        run: Tools/build-xcframework.sh
       - name: Build prebuilt-XCFramework package path
         run: swift build
       - name: Test prebuilt-XCFramework path with live engine
