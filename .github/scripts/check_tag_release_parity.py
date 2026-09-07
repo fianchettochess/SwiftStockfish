@@ -42,6 +42,34 @@ URL_RE = re.compile(r'url:\s*"([^"]+)"')
 CHECKSUM_RE = re.compile(r'checksum:\s*"([0-9a-f]{64})"')
 
 
+def binary_target_block(manifest: str) -> str | None:
+    """The text INSIDE the `.binaryTarget(...)` call, or None if there is none.
+
+    SCOPED, NOT FIRST-MATCH. Searching the whole manifest for `url:` finds
+    whichever comes first. This manifest happens to declare no package
+    dependencies, so today that is the binaryTarget's own url — but the
+    identical check in SwiftReckless reported all nine of its healthy tags as
+    "points at another release: https://github.com/apple/swift-crypto.git",
+    because a `.package(url:)` sits twenty lines above its binaryTarget. One
+    conditional swift-crypto dependency here, of the kind the Android arm
+    already wants, and this check starts failing on correct tags. A check that
+    fails on healthy tags gets switched off, which is worse than not having it.
+    """
+    start = manifest.find(".binaryTarget(")
+    if start < 0:
+        return None
+    i = manifest.index("(", start)
+    depth = 0
+    for j in range(i, len(manifest)):
+        if manifest[j] == "(":
+            depth += 1
+        elif manifest[j] == ")":
+            depth -= 1
+            if depth == 0:
+                return manifest[i + 1:j]
+    return None
+
+
 def run(*args: str) -> str:
     return subprocess.run(args, capture_output=True, text=True, check=True).stdout
 
@@ -81,7 +109,10 @@ def main() -> int:
         if not release.get("assets"):
             problems.append(f"{tag}: release exists but carries no asset")
 
-        manifest = manifest_at(tag)
+        manifest = binary_target_block(manifest_at(tag))
+        if manifest is None:
+            problems.append(f"{tag}: manifest declares no binaryTarget at all")
+            continue
         url = URL_RE.search(manifest)
         if url is None:
             problems.append(
