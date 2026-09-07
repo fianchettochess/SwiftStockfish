@@ -11,3 +11,8 @@ __pycache__/
 # Xcode/SwiftPM scratch output. Never committed: it is machine- and
 # toolchain-specific, and a 251-file accidental commit is how that gets noticed.
 build/
+
+# The xcframework is a RELEASE ARTIFACT, never committed. Build it locally with
+# Tools/build-xcframework.sh; release tags carry a url+checksum binaryTarget
+# pointing at the published asset. (history rewrite 2026-09-07)
+Frameworks/*.xcframework
