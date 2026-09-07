@@ -362,8 +362,9 @@ pass, it:
 5. Archives the exact framework, extracts and byte-compares it, and computes its
    SwiftPM checksum.
 6. On a detached HEAD, rewrites `Package.swift` to the release URL and checksum,
-   removes the committed framework, validates the manifest, and commits only
-   those intended release-tree changes.
+   removes the locally built framework if the run produced one (a no-op since it
+   stopped being committed — the `git rm` is `--ignore-unmatch`), validates the
+   manifest, and commits only those intended release-tree changes.
 7. Pushes that final commit through a temporary preparation branch, creates a
    **draft** release targeting it, uploads the asset, verifies the target,
    downloads and compares the uploaded bytes, and only then publishes. On an
@@ -372,15 +373,29 @@ pass, it:
 
 The semver tag is therefore created once at the final URL-based manifest commit,
 and the exact attached asset was built and tested before publication. **`main`
-is never pushed by the workflow**: it remains path-based with the committed
-framework for ordinary development.
+is never pushed by the workflow**: it remains path-based for ordinary
+development.
 
 After each release, consumers pin a version tag and SwiftPM fetches the
 XCFramework from the release using the manifest's `url:` and `checksum:`. The
-release tag contains no committed XCFramework. `main` remains path-based and
-links the committed XCFramework, so a plain local `swift build` continues to
-work. Because every release starts from a clean, path-based `main`, the workflow
-is rerunnable.
+release tag contains no XCFramework.
+
+**`main` no longer carries one either.** The framework was committed until
+2026-09-07 for one reason: SwiftPM cannot fetch a binaryTarget's release asset
+from a *private* repository, so URL mode worked for nobody and the committed
+binary was the only delivery that functioned. Publishing this package made URL
+mode real, and 126.6 MB of accumulated framework blobs — 56 of them, one per
+rebuild, in a 41 MiB repository — were removed from history, leaving 707 KiB.
+
+So a fresh clone has no engine binary. Build one before a local `swift build`:
+
+```sh
+Tools/build-xcframework.sh          # writes the gitignored Frameworks/Stockfish.xcframework
+```
+
+Consumers do not need this — pin a version and SwiftPM fetches the asset.
+It is only for working on the package itself. Because every release starts from
+a path-based `main`, the workflow remains rerunnable.
 
 **NNUE nets** are orthogonal to all of this: keep using `StockfishNetworkLoader`
 at runtime, or bundle the nets as a package resource — the loader's logic is
