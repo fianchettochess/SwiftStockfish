@@ -20,7 +20,7 @@ import Foundation
 public enum StockfishNetworks {
 
     /// The Stockfish source version this package wraps. Bump on upgrade.
-    public static let stockfishVersion = "18"
+    public static let stockfishVersion = "19"
 
     /// The exact NNUE networks the bundled engine requires.
     ///
@@ -30,17 +30,22 @@ public enum StockfishNetworks {
     /// filename prefix — so a file forged to share the prefix (a 2^48
     /// second-preimage) cannot pass.
     ///
-    /// The filenames were read from the bundled engine's `evaluate.h`
-    /// (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`); the hashes are the
-    /// SHA-256 of those exact nets. Bump both together with the engine source on
-    /// a version upgrade.
+    /// The filename is read from the bundled engine's `evaluate.h`; the hash is
+    /// the SHA-256 of that exact net. Bump both together with the engine source
+    /// on a version upgrade.
+    ///
+    /// ONE NET FROM sf_19, NOT TWO. Through sf_18 the engine carried a big and a
+    /// small network, named by `EvalFileDefaultNameBig` and
+    /// `EvalFileDefaultNameSmall`; sf_19 collapsed them into a single
+    /// `EvalFileDefaultName`, so those two symbols no longer exist to read. The
+    /// loader prunes any `nn-*.nnue` that is not in this list, so an install
+    /// holding the two sf_18 nets converges to the one below without manual
+    /// cleanup — and the pruning is why this list must be exactly the required
+    /// set rather than a superset kept "just in case".
     public static let required: [Network] = [
-        // big (EvalFileDefaultNameBig)
-        Network(filename: "nn-c288c895ea92.nnue",
-                sha256: "c288c895ea924429ea9092e3f36b2b3c1f00f2a3a4c759ff7e57e79e3b43e4a7"),
-        // small (EvalFileDefaultNameSmall)
-        Network(filename: "nn-37f18f62d772.nnue",
-                sha256: "37f18f62d772f3107e1d6aaca3898c130c3c86f2ab63e6555fbbca20635a899d"),
+        // EvalFileDefaultName
+        Network(filename: "nn-1a298aa575a0.nnue",
+                sha256: "1a298aa575a085434d29027978dc36867fe9c5bcea9376654b7a8eba1e52dfc2"),
     ]
 
     /// A single NNUE network, identified by its Stockfish filename.

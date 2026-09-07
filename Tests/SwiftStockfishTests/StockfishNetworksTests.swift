@@ -46,9 +46,24 @@ struct StockfishNetworksTests {
 
     // MARK: - The required manifest
 
-    @Test("required has exactly two nets")
-    func requiredHasTwoNets() {
-        #expect(StockfishNetworks.required.count == 2)
+    /// sf_19 collapsed the big/small pair into a single `EvalFileDefaultName`,
+    /// so this went from two to one. The count is pinned rather than merely
+    /// asserted non-empty because the loader PRUNES every `nn-*.nnue` outside
+    /// this list: a stray extra entry silently keeps a superseded net alive on
+    /// every install, and a missing one deletes a net the engine needs and only
+    /// fails at the first search. (sf_19 upgrade 2026-09-06)
+    @Test("required has exactly one net")
+    func requiredHasOneNet() {
+        #expect(StockfishNetworks.required.count == 1)
+    }
+
+    /// The manifest must match the engine actually bundled. `EvalFileDefaultName`
+    /// in evaluate.h is what `Network::load` looks for, so a manifest naming a
+    /// different file downloads a net the engine will not read and prunes the
+    /// one it will. Read from the vendored source, not from upstream's website.
+    @Test("required names the engine's own EvalFileDefaultName")
+    func requiredMatchesTheBundledEngine() {
+        #expect(StockfishNetworks.required.map(\.filename) == ["nn-1a298aa575a0.nnue"])
     }
 
     @Test("each required net has a non-empty 12-char shaPrefix")
@@ -97,8 +112,8 @@ struct StockfishNetworksTests {
         #expect(net.hasValidSHA256)
     }
 
-    @Test("stockfishVersion is 18")
-    func stockfishVersionIs18() {
-        #expect(StockfishNetworks.stockfishVersion == "18")
+    @Test("stockfishVersion is 19")
+    func stockfishVersionIs19() {
+        #expect(StockfishNetworks.stockfishVersion == "19")
     }
 }

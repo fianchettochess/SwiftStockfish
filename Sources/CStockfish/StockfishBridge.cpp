@@ -168,7 +168,14 @@ void runEngine(SFEngineImpl *impl) {
 
     char *argv0Ptr = impl->argv0.data();
     char *argv[] = {argv0Ptr, nullptr};
-    auto uci = std::make_unique<UCIEngine>(1, argv);
+    // sf_19 moved argv parsing out of UCIEngine: the constructor was
+    // `UCIEngine(int argc, char** argv)` and is now `UCIEngine(CommandLine)`.
+    // The synthetic argv is unchanged and still the only channel telling the
+    // engine where the caller's NNUE net lives — `CommandLine` merely became
+    // the thing that carries it, and `Engine::binaryDirectory` is derived from
+    // it through `CommandLine::get_binary_directory`, which our
+    // 0003 patch keeps from discarding a directory-bearing argv[0] on Windows.
+    auto uci = std::make_unique<UCIEngine>(CommandLine(1, argv));
     Tune::init(uci->engine_options());
     uci->loop();
 
@@ -193,7 +200,11 @@ SFEngineRef sf_create(const char *nnueDir) {
     auto impl = new SFEngineImpl();
 
     if (!sfInitialized) {
-        Bitboards::init();
+        // sf_19 renamed the attack-table initialiser: `Bitboards::init()`
+        // became `Attacks::init()` when the magic/attack tables moved out of
+        // bitboard.h into attacks.h. Same one-time table build, same place in
+        // the sequence — Position::init() still depends on it having run.
+        Attacks::init();
         Position::init();
         sfInitialized = true;
     }

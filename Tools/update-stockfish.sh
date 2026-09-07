@@ -59,14 +59,42 @@ if ! git clone --depth 1 --branch "$tag" "$UPSTREAM_REPO" "$work/sf" 2>"$work/cl
   exit 1
 fi
 
-echo "==> Syncing src/ -> ${DEST} (excluding Makefile, main.cpp)"
+echo "==> Syncing src/ -> ${DEST} (excluding Makefile, main.cpp, universal/)"
 # --delete so files removed upstream are removed here; the excludes are protected
 # from deletion, and our patched files exist upstream too (overwritten, then
 # re-patched below), so nothing we need is lost.
+#
+# universal/ IS EXCLUDED FOR THE SAME REASON main.cpp IS: it is upstream's
+# PROGRAM entry point, and we are a library. Added in sf_19, it implements the
+# single-binary runtime ISA dispatch (build the engine several times under
+# namespaced symbols, choose one via CPUID at startup) and it only works inside
+# an executable — `entry_x86.cpp` declares `extern const mach_header_64
+# _mh_execute_header` and calls a `main` per build variant, neither of which
+# exists in a static library, and the scheme also needs a post-link symbol
+# rewrite (`patch_x86_slice.sh`, `rewrite_asm_sections.awk`) that neither our
+# xcframework script nor SwiftPM performs.
+#
+# `nnue_embed.cpp` is the one that fails loudest: `#embed EvalFileDefaultName`
+# bakes the 94 MB network into the object, which is both a build error here (the
+# .nnue is not in the source tree — we download nets at runtime) and the opposite
+# of this package's net policy.
+#
+# Both build arms compile every .cpp they find — `build-xcframework.sh` runs
+# `find . -name "*.cpp"`, and the non-Apple SwiftPM target sets no `sources:` —
+# so an unexcluded universal/ is not merely unused, it breaks the build.
+# (sf_19 upgrade 2026-09-06)
 rsync -a --delete \
   --exclude='Makefile' \
   --exclude='main.cpp' \
+  --exclude='universal/' \
   "$work/sf/src/" "$DEST/"
+
+# REMOVED, not merely un-synced. rsync's --exclude also protects a path from
+# --delete, so a tree that already holds universal/ from an earlier run would
+# keep it forever and keep failing the build. Deleting after the sync makes the
+# script converge from any prior state, which is the property the header claims
+# ("repeated runs converge to the same result").
+rm -rf "$DEST/universal"
 
 echo "==> Applying local patches from ${PATCH_DIR}/"
 shopt -s nullglob
