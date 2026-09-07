@@ -174,7 +174,30 @@ constexpr int constexpr_popcount(T v) {
 // Counts the number of non-zero bits in a bitboard.
 inline int popcount(Bitboard b) {
 
-#ifdef _MSC_VER
+/*
+  Modified for SwiftStockfish, 2026-09-07 (GPLv3 5(a) modification notice).
+
+  Change relative to upstream Stockfish sf_19: the MSVC branch is taken only by
+  MSVC PROPER, not by clang targeting the MSVC ABI.
+
+  WHY: `_mm_popcnt_u64` is an always_inline intrinsic that requires the `popcnt`
+  target feature, and clang refuses to inline it into a function compiled
+  without that feature — "always_inline function '_mm_popcnt_u64' requires
+  target feature 'popcnt'". Clang targeting Windows defines `_MSC_VER`, so it
+  took this branch, and this package's non-Apple x86_64 builds are deliberately
+  BASELINE: `SF_ENABLE_AVX2` is a define only, and Package.swift says in as many
+  words that a consumer must pass `-mavx2 -mbmi2` externally to get the wider
+  codegen. Baseline plus a mandatory popcnt intrinsic is a build failure, which
+  is exactly what the Windows gate reported on the sf_19 bump while Linux — same
+  source, `#else` branch — passed.
+
+  UPSTREAM BEHAVIOUR IS PRESERVED. Real MSVC still gets the intrinsic; it has no
+  `__builtin_popcountll` to fall back on, which is why the branch exists.
+  Clang HAS the builtin on every target, and lowers it to POPCNT anyway when the
+  feature is enabled, so an opted-in AVX2 build loses no instruction selection —
+  it simply stops REQUIRING one at baseline.
+*/
+#if defined(_MSC_VER) && !defined(__clang__)
 
     return int(_mm_popcnt_u64(b));
 
