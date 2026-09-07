@@ -546,20 +546,64 @@ CommandLine::CommandLine(int _argc, char** _argv) :
     argc(_argc),
     argv(_argv) {
 #ifdef _WIN32
+    /*
+      Modified for SwiftStockfish, 2026-09-07 (GPLv3 5(a) modification notice).
+
+      Change relative to upstream Stockfish sf_19: the command line reported by Windows is
+      adopted ONLY when it is the caller's own. When an embedder passed a synthetic argv, the
+      caller's argv is kept exactly as given.
+
+      WHY: this engine is embedded, not launched. sf_create (StockfishBridge.cpp) builds a
+      one-element argv of `<netDirectory>/stockfish` and hands it to UCIEngine, and that
+      argv[0] is the only channel telling the engine where the caller's NNUE nets live.
+      Upstream overwrites BOTH the count and the pointer with the host process's real command
+      line, which breaks an embedder in two separate ways:
+
+        * The host's ARGUMENTS become UCI commands. UCIEngine executes everything after
+          argv[0] and then leaves the loop, so a host launched as `app game.pgn` answers
+          `Unknown command: 'game.pgn'` and never reaches `uci`/`isready`. MEASURED: the
+          embedding never received id name, uciok or readyok, every create blocked for the
+          caller's full readyok timeout, and every search returned nothing.
+
+        * The host's argv[0] REPLACES the net directory even when the host has no arguments
+          at all, because then wargc == 1 == the embedder's argc and the substitution looks
+          harmless. It is not: argv[0] becomes the host executable, Network::load searches
+          beside the host instead of beside the nets, and the 0003 patch cannot help because
+          the replacement argv[0] does have a parent path.
+
+      UPSTREAM BEHAVIOUR IS PRESERVED for the standalone binary, which is what this block was
+      written for: main() passes the very argv Windows reports, argv[0] matches, and the UTF-8
+      conversion is adopted exactly as before.
+
+      The comparison is on argv[0] rather than on argc alone, because argc alone cannot tell a
+      no-argument host from a standalone run. A standalone binary whose own path contains
+      non-ANSI characters will compare unequal here and keep its ANSI argv, which is the sf_18
+      behaviour for that case rather than a new failure.
+    */
     // Convert any non-ANSI characters passed on the command line to UTF-8
     int wargc = 0;
     if (LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &wargc))
     {
+        std::vector<std::string> converted;
         for (int i = 0; i < wargc; ++i)
-            argv_storage.push_back(utf8_from_wstring(wargv[i]));
+            converted.push_back(utf8_from_wstring(wargv[i]));
         LocalFree(wargv);
 
-        for (std::string& s : argv_storage)
-            argv_utf8.push_back(s.data());
-        argv_utf8.push_back(nullptr);
+        const bool callerOwnsThisCommandLine =
+          _argc >= 1 && _argv != nullptr && _argv[0] != nullptr && !converted.empty()
+          && converted[0] == std::string(_argv[0]);
 
-        argc = wargc;
-        argv = argv_utf8.data();
+        if (callerOwnsThisCommandLine)
+        {
+            argv_storage = std::move(converted);
+
+            for (std::string& s : argv_storage)
+                argv_utf8.push_back(s.data());
+            argv_utf8.push_back(nullptr);
+
+            argc = wargc;
+            argv = argv_utf8.data();
+        }
     }
 #endif
 }
