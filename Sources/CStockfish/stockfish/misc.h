@@ -37,7 +37,12 @@
 #include <type_traits>
 #include <vector>
 
-#if !defined(NO_PREFETCH) && (defined(_MSC_VER) || defined(__INTEL_COMPILER))
+// See the `prefetch` note below: clang-for-Windows must not take the Intel
+// intrinsic path, so it must not pull the header for it either. Kept in step
+// with the guard on the implementation, which is the whole point of touching
+// two lines instead of one. (sf_19 upgrade 2026-09-07)
+#if !defined(NO_PREFETCH) \
+  && ((defined(_MSC_VER) && !defined(__clang__)) || defined(__INTEL_COMPILER))
     #include <immintrin.h>
 #endif
 
@@ -92,7 +97,29 @@ enum class PrefetchLoc {
 #ifdef NO_PREFETCH
 template<PrefetchRw RW = PrefetchRw::READ, PrefetchLoc LOC = PrefetchLoc::HIGH>
 void prefetch(const void*) {}
-#elif defined(_MSC_VER) || defined(__INTEL_COMPILER)
+/*
+  Modified for SwiftStockfish, 2026-09-07 (GPLv3 5(a) modification notice).
+
+  Change relative to upstream Stockfish sf_19: the Intel-intrinsic prefetch is
+  selected for MSVC PROPER, not for clang targeting the MSVC ABI.
+
+  WHY: sf_19 rewrote `prefetch` as a template taking the hint as a template
+  parameter and passing `get_intel_hint(RW, LOC)` to `_mm_prefetch`, whose hint
+  argument must survive as a compile-time immediate. Clang targeting Windows
+  defines `_MSC_VER`, took this branch, and CRASHED — an LLVM assertion,
+  "cast<Ty>() argument of incompatible type!" in Casting.h, while generating
+  code for `Stockfish::prefetch` in search.cpp. A compiler crash, not a
+  diagnostic, so there is no warning to suppress and no flag to add.
+
+  Clang has `__builtin_prefetch` on every target and the `#else` arm below uses
+  it — the same arm Linux and Apple already compile, so this moves Windows onto
+  a path two other platforms exercise continuously rather than onto an untested
+  one.
+
+  UPSTREAM BEHAVIOUR IS PRESERVED for real MSVC and for ICC, neither of which
+  has `__builtin_prefetch`.
+*/
+#elif (defined(_MSC_VER) && !defined(__clang__)) || defined(__INTEL_COMPILER)
 
 constexpr int get_intel_hint(PrefetchRw rw, PrefetchLoc loc) {
     if (rw == PrefetchRw::WRITE)
