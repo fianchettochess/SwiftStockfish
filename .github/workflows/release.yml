@@ -225,9 +225,31 @@ jobs:
         env:
           CHECKSUM: ${{ steps.checksum.outputs.checksum }}
           REPO: ${{ github.repository }}
+          SOURCE_REF: ${{ inputs.source_ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
           set -euo pipefail
           git checkout --detach
+
+          # A BACKFILL CARRIES THE DEFAULT BRANCH'S CI CONFIG, and must.
+          #
+          # The release commit is a detached artifact whose whole job is to carry
+          # the URL-mode manifest; `.github/` is not part of the Swift package and
+          # nothing consuming a release tag reads it. But the publish step pushes
+          # this commit to a `release-prep/` branch, and GitHub refuses a push from
+          # GITHUB_TOKEN that "creates or updates" a workflow file — which an old
+          # tag's `.github/workflows/` does by definition once the default branch
+          # has moved. `workflows` is not a grantable GITHUB_TOKEN scope, so there
+          # is nothing to permit; the tree simply must not differ there.
+          #
+          # Taking the default branch's `.github/` makes the difference zero. It
+          # is also the more honest artifact: the CI that produced this release is
+          # today's, not the CI that happened to exist when the source was tagged.
+          # (release backfill 2026-09-07)
+          if [ -n "${SOURCE_REF}" ]; then
+            git checkout "origin/${DEFAULT_BRANCH}" -- .github
+          fi
+
           python3 .github/scripts/rewrite_binary_target.py \
             "https://github.com/${REPO}/releases/download/${VERSION}/${ASSET}" \
             "${CHECKSUM}"
@@ -238,10 +260,16 @@ jobs:
             grep -qxF "${pattern}" .gitignore || printf '%s\n' "${pattern}" >> .gitignore
           done
           git add Package.swift .gitignore
+          [ -n "${SOURCE_REF}" ] && git add .github
           git diff --cached --check
 
+          # `.github/` is stageable ONLY on a backfill, for the reason above. On a
+          # normal release the tree is already the default branch's, so anything
+          # under it appearing here would be an unexplained difference.
+          ALLOWED='^(Package.swift|\.gitignore|Frameworks/Stockfish\.xcframework/)'
+          [ -n "${SOURCE_REF}" ] && ALLOWED="${ALLOWED%)}|\.github/)"
           UNEXPECTED="$(git diff --cached --name-only | \
-            grep -Ev '^(Package.swift|\.gitignore|Frameworks/Stockfish\.xcframework/)' || true)"
+            grep -Ev "${ALLOWED}" || true)"
           if [ -n "${UNEXPECTED}" ]; then
             echo "::error::unexpected paths staged for the release commit"
             printf '%s\n' "${UNEXPECTED}"
