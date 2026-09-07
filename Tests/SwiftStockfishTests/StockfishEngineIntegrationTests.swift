@@ -4,8 +4,8 @@
 //
 //  Real-engine UCI integration, GATED behind SWIFTSTOCKFISH_INTEGRATION so it
 //  stays OUT of a plain `swift test` — its first live run downloads the real
-//  ~107 MB nets and spins up a live engine. Later runs reuse the versioned
-//  cache after the loader verifies both nets' full SHA-256 digests. Run it with:
+//  ~94 MB net and spins up a live engine. Later runs reuse the versioned
+//  cache after the loader verifies every net's full SHA-256 digest. Run it with:
 //
 //      SWIFTSTOCKFISH_INTEGRATION=1 swift test
 //
@@ -91,6 +91,37 @@ struct StockfishEngineIntegrationTests {
     }
 
     private enum IntegrationError: Error { case timedOut, engineCreationFailed }
+
+    /// Every mirror must serve the NET, not a stand-in for it.
+    ///
+    /// The GitHub fallback pointed at `raw.githubusercontent.com` until
+    /// 2026-09-07. That repository keeps its nets in Git LFS, so the raw host
+    /// answered 200 with a 133-byte LFS *pointer* instead of the net. The
+    /// SHA-256 pin rejected it, so nothing was ever corrupted — but the
+    /// fallback could not deliver, and no test noticed, because the offline
+    /// suite never dials out and the live suite is satisfied by the primary.
+    ///
+    /// This costs one ranged request per source, not a 94 MB download: an LFS
+    /// pointer is identifiable from its first bytes.
+    @Test("every download source serves net bytes, not a Git LFS pointer")
+    func everySourceServesRealNetBytes() async throws {
+        let filename = try #require(StockfishNetworks.required.first).filename
+
+        for source in StockfishNetworkLoader.Source.allCases {
+            var request = URLRequest(url: source.url(for: filename))
+            request.setValue("bytes=0-127", forHTTPHeaderField: "Range")
+
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? -1
+            #expect(code == 200 || code == 206, "\(source) answered HTTP \(code)")
+
+            let head = String(decoding: data.prefix(64), as: UTF8.self)
+            #expect(
+                !head.hasPrefix("version https://git-lfs.github.com/spec/v1"),
+                "\(source) served a Git LFS pointer for \(filename), not the net"
+            )
+        }
+    }
 
     @Test("drives a real engine through uci → isready → go depth 1 → bestmove")
     func drivesRealEngineOverUCI() async throws {

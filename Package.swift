@@ -23,7 +23,7 @@
 //     ios-arm64_x86_64-maccatalyst, macos-arm64_x86_64, tvos-arm64,
 //     tvos-arm64_x86_64-simulator, watchos-arm64_arm64_32,
 //     watchos-arm64_x86_64-simulator,
-//     xros-arm64, xros-arm64_x86_64-simulator) — built from the same Stockfish 18
+//     xros-arm64, xros-arm64_x86_64-simulator) — built from the same Stockfish 19
 //     source, with the
 //     per-arch SIMD flags (ARM dot-product, plus `-mavx2 -mbmi2` on x86_64)
 //     baked in at build time. They require FEAT_DotProd-capable ARM hardware or
@@ -243,7 +243,7 @@ let package = Package(
         // tests that run on a plain `swift test` (they NEVER touch the
         // network). Suite 3 is a real-engine UCI integration suite, gated
         // behind the SWIFTSTOCKFISH_INTEGRATION env var so it stays out of the
-        // default run (it needs a ~107 MB net download + a live engine).
+        // default run (it needs a ~94 MB net download + a live engine).
         .testTarget(
             name: "SwiftStockfishTests",
             // `cryptoTargetDeps` is empty on Apple and links swift-crypto on

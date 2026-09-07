@@ -36,7 +36,7 @@ details.
 ```swift
 // Package.swift
 dependencies: [
-    .package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.11"),
+    .package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "19.0.0"),
 ],
 targets: [
     .target(
@@ -91,7 +91,7 @@ swift test     # offline logic + filesystem suites (the live-engine suite is gat
 
 The default `swift test` run never touches the network. Enable the real-engine
 UCI integration suite only with `SWIFTSTOCKFISH_INTEGRATION=1`; every other
-value leaves it disabled. The suite needs a ~107 MB net download and a live
+value leaves it disabled. The suite needs a ~94 MB net download and a live
 engine.
 
 !!! note "Filesystem requirements"

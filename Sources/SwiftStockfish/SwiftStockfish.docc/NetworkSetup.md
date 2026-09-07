@@ -97,7 +97,7 @@ The loader tries two endpoints, in order, per file — see
   `https://tests.stockfishchess.org/api/nn/<filename>`.
 - ``StockfishNetworkLoader/Source/githubNetworks`` — the official networks repo
   raw files,
-  `https://raw.githubusercontent.com/official-stockfish/networks/master/<filename>`.
+  `https://media.githubusercontent.com/media/official-stockfish/networks/master/<filename>`.
 
 fishtest is tried first, GitHub as a fallback.
 

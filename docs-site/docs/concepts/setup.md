@@ -21,11 +21,11 @@ engine needs.
 
 ```swift
 public enum StockfishNetworks {
-    public static let stockfishVersion: String        // "18"
-    public static let required: [Network]             // the big + small nets
+    public static let stockfishVersion: String        // "19"
+    public static let required: [Network]             // every net sf_19 requires
 
     public struct Network: Sendable, Equatable, Hashable {
-        public let filename: String                   // "nn-c288c895ea92.nnue"
+        public let filename: String                   // "nn-1a298aa575a0.nnue"
         public let sha256: String                     // the pinned full 64-hex SHA-256
         public init(filename: String, sha256: String = "")
         public var shaPrefix: String                  // the 12-hex SHA-256 prefix
@@ -33,11 +33,12 @@ public enum StockfishNetworks {
 }
 ```
 
-Stockfish 18 uses **two** networks: a "big" network (main evaluation) and a
-"small" network (a faster, lower-accuracy path). Both must be present. Each
-net's FULL SHA-256 is pinned alongside its filename, and the loader verifies the
-whole digest after a download — the filename's 12-hex prefix is only a fallback
-for fixtures without a pinned hash.
+Stockfish 19 evaluates with a **single** network. (Through sf_18 there were
+two: a "big" network for the main evaluation and a "small" one for a faster,
+lower-accuracy path.) Every net in `required` must be present. Each net's FULL
+SHA-256 is pinned alongside its filename, and the loader verifies the whole
+digest after a download — the filename's 12-hex prefix is only a fallback for
+fixtures without a pinned hash.
 
 ## The loader
 
@@ -97,7 +98,7 @@ The loader tries two endpoints, in order, per file:
 ```swift
 public enum Source: Sendable, CaseIterable {
     case fishtest          // https://tests.stockfishchess.org/api/nn/<filename>
-    case githubNetworks    // https://raw.githubusercontent.com/official-stockfish/networks/master/<filename>
+    case githubNetworks    // https://media.githubusercontent.com/media/official-stockfish/networks/master/<filename>
 }
 ```
 
@@ -112,20 +113,22 @@ public enum LoaderError: Error, Sendable {
 }
 ```
 
-## Upgrading Stockfish (e.g. 18 → 18.1)
+## Upgrading Stockfish (e.g. 19 → 19.1)
 
 When the engine binary is updated, update the manifest and the loader handles the
 rest:
 
 1. Update `StockfishNetworks.stockfishVersion`.
 2. Update `StockfishNetworks.required` with the new version's network filenames,
-   copied verbatim from the engine's `evaluate.h` (`EvalFileDefaultNameBig` and
-   `EvalFileDefaultNameSmall`).
+   copied verbatim from the engine's `evaluate.h` — `EvalFileDefaultName` as of
+   sf_19, which replaced sf_18's `EvalFileDefaultNameBig` and
+   `EvalFileDefaultNameSmall`.
 3. Pin each new net's full SHA-256 in `StockfishNetworks.required`.
 
 On the next `ensure(in:)`, the loader downloads the new networks and **prunes the
-old ones**, so a directory that held the 18 networks becomes a directory holding
-exactly the 18.1 networks with no manual cleanup.
+old ones**, so a directory that held the 19 networks becomes a directory holding
+exactly the 19.1 networks with no manual cleanup. That is what carried existing
+installs across 18 → 19: two nets pruned, one downloaded, no migration step.
 
 ## Cross-platform crypto
 

@@ -9,7 +9,7 @@ On **Apple** platforms the engine links a prebuilt, multi-arch
 compiled from source. Either way a small C++ bridge drives Stockfish's UCI loop
 over an in-process queue, and the Swift surface is identical on every platform.
 
-- Wraps **Stockfish source version 18** (`StockfishNetworks.stockfishVersion`).
+- Wraps **Stockfish source version 19** (`StockfishNetworks.stockfishVersion`).
 - **GPL-3.0** — this package ships and links Stockfish, so the whole package is a
   GPL-3.0 work (see [Licensing](#licensing)).
 

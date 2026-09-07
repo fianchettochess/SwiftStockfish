@@ -12,8 +12,9 @@ import Foundation
 
 /// The set of NNUE networks the bundled Stockfish build evaluates with.
 ///
-/// Stockfish 18 uses two nets — a "big" net for the main evaluation and a
-/// "small" net for a faster, lower-accuracy path. Both must be present in the
+/// Stockfish 19 evaluates with a single net. (Through sf_18 there were two — a
+/// "big" net for the main evaluation and a "small" net for a faster,
+/// lower-accuracy path.) Every net in ``required`` must be present in the
 /// engine's network directory before the engine is created; a missing or
 /// invalid net makes Stockfish call `exit(EXIT_FAILURE)`. See
 /// ``StockfishNetworkLoader`` and ``StockfishEngine``.

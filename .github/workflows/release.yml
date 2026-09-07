@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'New release version / tag (for example 18.0.11)'
+        description: 'New release version / tag (for example 19.0.1)'
         required: true
         type: string
       source_ref:

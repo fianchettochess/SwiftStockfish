@@ -106,8 +106,19 @@ public struct StockfishNetworkLoader: Sendable {
     public enum Source: Sendable, CaseIterable {
         /// The Stockfish fishtest API: `https://tests.stockfishchess.org/api/nn/<filename>`.
         case fishtest
-        /// The official networks repo raw files:
-        /// `https://raw.githubusercontent.com/official-stockfish/networks/master/<filename>`.
+        /// The official networks repo:
+        /// `https://media.githubusercontent.com/media/official-stockfish/networks/master/<filename>`.
+        ///
+        /// MEDIA, NOT RAW. That repository stores its nets in Git LFS, and
+        /// `raw.githubusercontent.com` serves an LFS *pointer* for them — 133
+        /// bytes of `version https://git-lfs.github.com/spec/v1` text, with
+        /// HTTP 200. Measured against both the sf_19 net and sf_18's big net;
+        /// only sf_18's 3.5 MB small net was under the LFS threshold and came
+        /// through whole, which is why this went unnoticed. The SHA-256 pin
+        /// rejected the pointer, so the failure was safe — but it meant the
+        /// fallback could not actually deliver the net that matters, and a
+        /// fallback that cannot fire is not a fallback. `media.…/media/`
+        /// resolves the LFS object and serves the real bytes.
         case githubNetworks
 
         /// The default try-order: fishtest first, GitHub as fallback.
@@ -118,7 +129,7 @@ public struct StockfishNetworkLoader: Sendable {
             case .fishtest:
                 return URL(string: "https://tests.stockfishchess.org/api/nn/\(filename)")!
             case .githubNetworks:
-                return URL(string: "https://raw.githubusercontent.com/official-stockfish/networks/master/\(filename)")!
+                return URL(string: "https://media.githubusercontent.com/media/official-stockfish/networks/master/\(filename)")!
             }
         }
     }

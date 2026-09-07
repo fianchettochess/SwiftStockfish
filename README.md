@@ -18,7 +18,7 @@ API (`StockfishEngine`) and a version-aware NNUE network manager
 The package is distributed under **GPL-3.0** because it ships Stockfish. See
 [License](#license).
 
-- Wraps Stockfish source version **18** (`StockfishNetworks.stockfishVersion`).
+- Wraps Stockfish source version **19** (`StockfishNetworks.stockfishVersion`).
 - Platforms — **Apple:** macOS 10.15+, iOS 13+, tvOS 13+, watchOS 6+, visionOS 1+,
   and Mac Catalyst 13+. **Non-Apple:** Linux (x86_64 and arm64), **Windows** (x86_64), and
   **Android** (API 28+; arm64, x86_64, and armv7). WASM is not yet supported. See
@@ -46,13 +46,17 @@ The package is distributed under **GPL-3.0** because it ships Stockfish. See
 Add SwiftStockfish to your package dependencies:
 
 ```swift
-.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "18.0.11")
+.package(url: "https://github.com/fianchettochess/SwiftStockfish.git", from: "19.0.0")
 ```
 
-Package versions track the wrapped Stockfish version. Stockfish 18 maps to the
-`18.0.x` series; patch releases contain wrapper, binary, documentation, or test
-changes without changing the engine version. A future Stockfish 18.1 wrapper
-would begin at `18.1.0`.
+Package versions track the wrapped Stockfish version. Stockfish 19 maps to the
+`19.0.x` series; patch releases contain wrapper, binary, documentation, or test
+changes without changing the engine version. A future Stockfish 19.1 wrapper
+would begin at `19.1.0`.
+
+Stockfish 18 remains available on the `18.0.x` line, up to `18.0.18`. Those tags
+are maintained releases, not history — pin `"18.0.18"` (or `from: "18.0.11"`) to
+stay on the two-net engine.
 
 ## Quick start
 
@@ -146,8 +150,8 @@ SWIFTSTOCKFISH_INTEGRATION=1 swift test
 
 Any other value leaves the live suite disabled. The live tests run serially and
 share one persistent, versioned NNUE fixture. Before either test creates an
-engine, the loader verifies the full pinned SHA-256 digest of both cached
-networks. The first run downloads about 107 MB; later runs reuse valid files.
+engine, the loader verifies the full pinned SHA-256 digest of the cached
+network. The first run downloads about 94 MB; later runs reuse valid files.
 
 CI builds the Linux source arm in a digest-pinned snapshot of Swift's
 `nightly-6.4.x-jammy` release-branch image. Pull requests run only on that
@@ -159,7 +163,7 @@ the release contract is capability-based. The workflow then links the Apple
 binary target and runs the full live suite. The release workflow also rebuilds
 and tests the exact XCFramework before publishing it.
 
-## Upgrade workflow: Stockfish 18 to 18.1
+## Upgrade workflow: Stockfish 19 to 19.1
 
 A Stockfish upgrade is a clean, mostly-automatic swap. The daily
 [`Upstream watch`](.github/workflows/upstream-watch.yml) workflow opens a
@@ -169,7 +173,7 @@ upstream against [`.upstream-version`](.upstream-version)).
 1. Re-vendor the engine source and re-apply our local patches in one step:
 
    ```sh
-   Tools/update-stockfish.sh sf_18.1
+   Tools/update-stockfish.sh sf_19.1
    ```
 
    This fetches upstream `official-stockfish/Stockfish` at the tag, syncs it into
@@ -188,8 +192,10 @@ upstream against [`.upstream-version`](.upstream-version)).
    not compiled there.
 2. Bump `StockfishNetworks.stockfishVersion`.
 3. Update `StockfishNetworks.required` with the new version's net filenames.
-   The real filenames live in the engine's `evaluate.h`
-   (`EvalFileDefaultNameBig` / `EvalFileDefaultNameSmall`); copy them verbatim —
+   The real filenames live in the engine's `evaluate.h`. Through sf_18 there
+   were two, `EvalFileDefaultNameBig` and `EvalFileDefaultNameSmall`; sf_19
+   collapsed them into a single `EvalFileDefaultName`, so read whichever
+   symbols that header actually defines and copy them verbatim —
    then compute each new net's full SHA-256 (`shasum -a 256 nn-*.nnue`) and pin
    it as the `sha256:` of the corresponding entry in
    `StockfishNetworks.required`. The loader verifies the full pinned digest
@@ -199,8 +205,10 @@ upstream against [`.upstream-version`](.upstream-version)).
 
 On the next `ensure(in:)`, the loader **downloads the new nets and prunes the
 old ones** (it deletes any `nn-*.nnue` in the directory that isn't in the
-required set), so a directory that held the 18 nets becomes a directory holding
-exactly the 18.1 nets with no manual cleanup.
+required set), so a directory that held the 19 nets becomes a directory holding
+exactly the 19.1 nets with no manual cleanup. That is also what carried existing
+installs across the 18-to-19 upgrade: the two sf_18 nets were pruned and the one
+sf_19 net downloaded, with no migration step.
 
 ## Build model
 
@@ -212,7 +220,7 @@ with `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` (see
 - **Apple — prebuilt `Stockfish.xcframework`** (a `binaryTarget`). The
   XCFramework carries **10 slices** across iOS, macOS, Mac Catalyst, tvOS,
   watchOS, and visionOS device and simulator destinations. Every slice is built
-  from the same Stockfish 18 source by
+  from the same Stockfish 19 source by
   `Tools/build-xcframework.sh`. Apple ARM slices preserve the NEON+DOTPROD path
   and require FEAT_DotProd-capable hardware; x86_64 preserves the optimized
   AVX2/BMI2 (PEXT) build and requires Haswell-class hardware. A
@@ -338,7 +346,7 @@ Releases are produced by the manual **Release binary** GitHub Actions workflow
 a tag. In **Actions → Release binary → Run workflow**, choose the current default
 branch and enter a new stable `N.N.N` version. Existing tags and releases are
 rejected; published versions are never re-cut or force-moved. The workflow
-derives the allowed `18.0.x` wrapper line from `.upstream-version` and rejects a
+derives the allowed `19.0.x` wrapper line from `.upstream-version` and rejects a
 version from another engine line.
 
 The workflow runs on the trusted self-hosted Intel Mac Pro, selects
@@ -414,8 +422,8 @@ SwiftStockfish/
     upstream-watch-issue.md      # body template for the watcher's tracking issue
     scripts/rewrite_binary_target.py  # changes the active binaryTarget from path: to URL and checksum
   Frameworks/
-    Stockfish.xcframework        # Prebuilt multi-arch engine — path binaryTarget on `main`;
-                                 #   a release tag drops it here and serves it from the release asset
+    Stockfish.xcframework        # Prebuilt multi-arch engine — GITIGNORED, built locally by
+                                 #   Tools/build-xcframework.sh; a release tag serves it as an asset
   Tools/
     update-stockfish.sh          # re-vendor upstream at a tag and re-apply local patches
     patches/                     # the local patches update-stockfish.sh re-applies

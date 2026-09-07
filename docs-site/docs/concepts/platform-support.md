@@ -26,7 +26,7 @@ build host.
 
 - **Apple — prebuilt `Stockfish.xcframework`.** A `binaryTarget` with 10 slices
   (ios/macos/tvos/watchos/xros/maccatalyst, device + simulator), all built from
-  the same Stockfish 18 source. Apple ARM slices preserve NEON+DOTPROD and
+  the same Stockfish 19 source. Apple ARM slices preserve NEON+DOTPROD and
   require FEAT_DotProd-capable hardware; x86_64 preserves the optimized
   AVX2/BMI2 (PEXT) build and requires Haswell-class hardware. Neither path has runtime
   baseline dispatch.
