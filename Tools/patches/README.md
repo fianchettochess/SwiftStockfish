@@ -39,6 +39,34 @@ after it syncs the upstream `src/`. Each is a GPLv3 §5(a)-noticed modification:
   unchanged, and only the directory component of a separator-bearing argv[0] is
   ever used so the absent `.exe` is irrelevant. Windows-only by construction;
   Apple/Linux/Android compile the untouched `#else` arm.
+- `0004-bitboard.h-popcount-without-popcnt-on-clang-windows.patch` — take the MSVC
+  `_mm_popcnt_u64` branch only under MSVC proper. Clang refuses to inline that
+  always_inline intrinsic into a function built without the `popcnt` target
+  feature, and this package's non-Apple x86_64 builds are deliberately baseline.
+- `0005-misc.h-prefetch-without-intel-intrinsic-on-clang-windows.patch` — the same
+  `_MSC_VER` reading applied to `_mm_prefetch`.
+- `0006-misc.cpp-keep-embedder-command-line-on-windows.patch` — adopt the command
+  line Windows reports only when `argv[0]` proves it is the caller's own. Upstream
+  overwrites both the count and the pointer with the host process's real command
+  line, which turns the host's ARGUMENTS into UCI commands and replaces the
+  embedder's net directory even when the host has none. The companion to `0003`:
+  that one protects `argv[0]`'s directory, this one protects the whole vector.
+- `0007-types.h-popcnt-header-without-msvc-intrinsics-on-clang-windows.patch` —
+  include `<nmmintrin.h>` only under MSVC proper. It is an x86 (SSE4.2) header, and
+  clang defines `_MSC_VER` on EVERY Windows target including
+  `aarch64-unknown-windows-msvc`, where defining it is exactly what selects the MSVC
+  ABI. Upstream reads `_MSC_VER` as "therefore x86", which held while MSVC was the
+  only compiler defining it. MEASURED 2026-09-07: an ARM64 Windows build died inside
+  clang's own `mmintrin.h` on `__builtin_ia32_*` at 10 of 40 files, before reaching
+  any Stockfish code; with this it compiles 37 of 39 and stops only at the link, for
+  want of the ARM64 CRT import libraries. Nothing is lost on clang at any
+  architecture, because `0004` already stopped clang using the one intrinsic this
+  header was included for.
+
+  The neighbouring `<xmmintrin.h>` prefetch include in the same file has the same
+  shape and is deliberately untouched: `NO_PREFETCH` already disables it and the
+  consuming face passes `-DNO_PREFETCH` for arm64. An ARM64 build without that
+  define would still meet it.
 
 If a new upstream tag moves the code a patch touches, `update-stockfish.sh` fails
 loudly; rebase that `.patch` against the new source and re-run (regenerate with

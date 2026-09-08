@@ -105,7 +105,35 @@
         #define IS_64BIT
     #endif
 
-    #if defined(_MSC_VER)
+    /*
+      Modified for SwiftStockfish, 2026-09-07 (GPLv3 5(a) modification notice).
+
+      Change relative to upstream Stockfish sf_19: this header is included by MSVC PROPER, not
+      by clang targeting the MSVC ABI.
+
+      WHY: <nmmintrin.h> is an x86 header (SSE4.2), and clang defines _MSC_VER on EVERY Windows
+      target -- including aarch64-unknown-windows-msvc, where defining it is precisely what
+      selects the MSVC ABI (see Package.swift). Upstream reads _MSC_VER as "therefore x86",
+      which held while MSVC was the only compiler that defined it. So an ARM64 Windows build
+      pulled in x86 intrinsic headers and died inside clang's own mmintrin.h -- "use of
+      undeclared identifier '__builtin_ia32_pmulhw128'" and dozens like it -- before a single
+      line of Stockfish was reached. MEASURED 2026-09-07 on aarch64-unknown-windows-msvc: the
+      build stopped at 10 of 40 files.
+
+      NOTHING IS LOST ON CLANG, ON ANY ARCHITECTURE. The header is here for _mm_popcnt_u64(),
+      and patch 0004 already stopped clang taking the branch that calls it, in favour of
+      __builtin_popcountll. Under clang this include therefore had no remaining consumer at
+      all, x86_64 included; it was dead weight there and a hard error on ARM.
+
+      UPSTREAM BEHAVIOUR IS PRESERVED for real MSVC, which still gets the header for the
+      intrinsic it still uses.
+
+      THE NEIGHBOURING PREFETCH INCLUDE below has the same _MSC_VER-implies-x86 shape, and is
+      deliberately left alone: NO_PREFETCH already disables it, and scripts/build-kit.ps1 in
+      the consuming face passes -DNO_PREFETCH for arm64. An ARM64 build without that define
+      would still meet it.
+    */
+    #if defined(_MSC_VER) && !defined(__clang__)
         #include <nmmintrin.h>  // Microsoft header for _mm_popcnt_u64()
     #endif
 
