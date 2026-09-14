@@ -16,3 +16,4 @@ build/
 # Tools/build-xcframework.sh; release tags carry a url+checksum binaryTarget
 # pointing at the published asset. (history rewrite 2026-09-07)
 Frameworks/*.xcframework
+Stockfish.xcframework.zip
