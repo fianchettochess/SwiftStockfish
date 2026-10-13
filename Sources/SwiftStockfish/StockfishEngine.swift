@@ -9,6 +9,7 @@
 //
 
 import Foundation
+import Dispatch
 import CStockfish
 
 /// A live Stockfish engine instance.
@@ -35,6 +36,19 @@ import CStockfish
 ///   engine hangs the next create forever). ``shutdown()`` joins the engine
 ///   threads; call it off-main too.
 public final class StockfishEngine: @unchecked Sendable {
+
+    /// Monotonic elapsed times for the work completed by the initializer.
+    /// These exclude the subsequent UCI handshake and search.
+    public struct StartupTimings: Sendable {
+        /// Reading and validating the required network files, including cache lookup.
+        public let networkVerificationSeconds: TimeInterval
+        /// Creating the native bridge, including its engine lifecycle gate.
+        public let bridgeCreationSeconds: TimeInterval
+    }
+
+    /// Timings for this successful engine creation. Recording these does not
+    /// change network verification, caching, or the native startup protocol.
+    public let startupTimings: StartupTimings
 
     // `SFEngineRef` is `const void *`; in Swift it surfaces as an opaque
     // pointer. Treated as immutable after init, so the class is safe to share.
@@ -84,16 +98,23 @@ public final class StockfishEngine: @unchecked Sendable {
         // `verify_networks()` on the first `go`/`ucinewgame` — an UNCATCHABLE host
         // process kill. Fail the initializer instead so the caller gets a nil it
         // can handle (e.g. re-provision the net via StockfishNetworkLoader).
+        let verificationStart = DispatchTime.now().uptimeNanoseconds
         guard StockfishNetworkLoader().requiredNetworksSatisfied(in: networkDirectory) else {
             continuation.finish()
             return nil
         }
 
+        let bridgeStart = DispatchTime.now().uptimeNanoseconds
         guard let ref = networkDirectory.path.withCString({ sf_create($0) }) else {
             // No engine was created, so finish the (empty) stream.
             continuation.finish()
             return nil
         }
+        let bridgeEnd = DispatchTime.now().uptimeNanoseconds
+        self.startupTimings = StartupTimings(
+            networkVerificationSeconds: Double(bridgeStart - verificationStart) / 1_000_000_000,
+            bridgeCreationSeconds: Double(bridgeEnd - bridgeStart) / 1_000_000_000
+        )
         self.engine = ref
 
         // Bridge `self` into the C callback's `void *context` via an unretained

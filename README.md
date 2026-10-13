@@ -89,6 +89,13 @@ engine.send("position startpos")
 engine.send("go depth 20")
 ```
 
+For startup diagnostics, `engine.startupTimings` reports monotonic elapsed
+seconds for `networkVerificationSeconds` and `bridgeCreationSeconds`. The
+first includes the full network integrity check (or a successful in-process
+cache lookup); the second includes the native bridge's lifecycle gate. UCI
+handshake and search time are measured separately by the caller. These values
+are available after successful creation and do not alter verification or caching.
+
 > [!WARNING]
 > **Run the loader before creating the engine.** Stockfish verifies its NNUE
 > nets on the first `go`/`ucinewgame` and calls `exit(EXIT_FAILURE)` if one is
