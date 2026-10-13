@@ -140,6 +140,11 @@ struct StockfishEngineIntegrationTests {
         }
         defer { engine.quit() }
 
+        #expect(engine.startupTimings.networkVerificationSeconds.isFinite)
+        #expect(engine.startupTimings.networkVerificationSeconds >= 0)
+        #expect(engine.startupTimings.bridgeCreationSeconds.isFinite)
+        #expect(engine.startupTimings.bridgeCreationSeconds >= 0)
+
         // 3. uci → uciok.
         engine.uci()
         let uciok = try await waitForLine(from: engine) { $0 == "uciok" }

@@ -177,8 +177,7 @@ engineTargets = [
 }
 
 // SHA-256 BACKEND for NNUE verification. Apple uses the OS-provided CryptoKit
-// (no dependency). NON-APPLE hosts (Android/Linux) use the vendored streaming
-// SHA256 in Sources/SwiftStockfish/SHA256.swift (FIPS 180-4, vector-tested) —
+// (no dependency). NON-APPLE hosts (Android/Linux) use a portable C SHA-256 kernel behind the Swift value API in Sources/SwiftStockfish/SHA256.swift (FIPS 180-4, vector-tested) —
 // no external crypto dependency at all. This also avoids SwiftPM's 6.3.3
 // Android cross-build pruning of the `Crypto` module name, which dropped
 // swift-crypto from the plan ("no such module 'Crypto'"). Both branches now
@@ -229,6 +228,7 @@ let package = Package(
     // chain and dragged crypto into locks the 6.3.3 planner cannot build.
     dependencies: cryptoPackageDeps,
     targets: engineTargets + [
+        .target(name: "CStockfishNetworkHash"),
         // The Swift-facing API: the engine wrapper + the version-aware NNUE
         // network loader.
         .target(
@@ -236,7 +236,7 @@ let package = Package(
             // `cryptoTargetDeps` is empty on Apple (CryptoKit comes from the OS)
             // and would add swift-crypto's `Crypto` product on non-Apple hosts
             // if it were non-empty; it is empty everywhere (see above).
-            dependencies: ["CStockfish"] + cryptoTargetDeps,
+            dependencies: ["CStockfish", "CStockfishNetworkHash"] + cryptoTargetDeps,
             path: "Sources/SwiftStockfish"
         ),
         // The test suite. Suites 1 & 2 are pure-logic / offline filesystem
