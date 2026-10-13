@@ -494,3 +494,13 @@ distributed under GPL-3.0. See
 [`LICENSE`](LICENSE). If you consume this package in an application, that
 linkage carries GPL-3.0 obligations — treat SwiftStockfish as the separately
 distributable GPL component.
+
+### Portable network integrity hashing
+
+On platforms without CryptoKit, the existing `VendoredSHA256` streaming API
+uses the private `CStockfishNetworkHash` target. It implements FIPS 180-4 with
+fixed-size state and byte loads, without external crypto dependencies, SIMD
+requirements or compiler optimization overrides. Apple loader verification
+continues to use CryptoKit. The full pinned digest checks and cache behavior
+are unchanged. Binary padding/streaming vectors and independent copied-state
+checks run alongside the existing NIST vectors.
