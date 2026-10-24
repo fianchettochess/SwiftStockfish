@@ -4,9 +4,8 @@
 
 SwiftStockfish vendors source from
 [official-stockfish/Stockfish](https://github.com/official-stockfish/Stockfish)
-at the tag recorded in [`.upstream-version`](.upstream-version), currently
-`sf_18`. Stockfish is distributed under the GNU General Public License,
-version 3. Its copyright and license notices remain in the vendored source.
+at the tag recorded in [`.upstream-version`](.upstream-version). Stockfish is
+distributed under the GNU General Public License, version 3. Its copyright and license notices remain in the vendored source.
 
 The vendored tree omits the upstream command-line entry point and build file,
 adds the bridge/configuration needed by this package, and applies the documented
