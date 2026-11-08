@@ -6,9 +6,11 @@ name: SwiftStockfish — CI (Windows gate)
 # Windows-only patch to `misc.cpp`, and a Windows-only argv[0]/_MSC_VER fault once made an unloaded
 # NNUE net look like a working engine. Both are the kind of thing only a Windows build finds.
 #
-# The live engine suite stays gated behind SWIFTSTOCKFISH_INTEGRATION=1 and is NOT set here, so this
-# job downloads no network and asserts compilation and the unit suite. A Windows integration gate is
-# worth having and is deliberately a separate piece of work.
+# The live engine suite stays gated behind SWIFTSTOCKFISH_INTEGRATION=1. This job sets it for ONE
+# test only — a net directory with non-ASCII characters (Fianchetto-b32.167) — because that failure
+# exists only on Windows: a narrowed path is read in the ANSI code page, the net is not found, and the
+# first `go` exits the host process. It costs one ~94 MB net, cached on the file that pins the net's
+# digest; the loader re-verifies the full SHA-256 of whatever the cache restores.
 #
 # Companion to the Linux gate, not a replacement. Windows runners cost about
 # twice a Linux minute and the owner has accepted that; the alternative is a
@@ -180,3 +182,17 @@ jobs:
 
       - name: Test
         run: swift test
+
+      # Keyed on the file that pins the net (StockfishNetworks.swift), so a net
+      # bump is a new key rather than a stale entry.
+      - name: Restore the Stockfish net
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/swiftstockfish-nnue
+          key: swiftstockfish-nnue-${{ hashFiles('Sources/SwiftStockfish/StockfishNetworks.swift') }}
+
+      - name: Test a non-ASCII net directory against a live engine
+        env:
+          SWIFTSTOCKFISH_INTEGRATION: '1'
+          SWIFTSTOCKFISH_NNUE_CACHE: ${{ runner.temp }}/swiftstockfish-nnue
+        run: swift test --filter nonASCIINetworkDirectoryLoadsAndSearches
