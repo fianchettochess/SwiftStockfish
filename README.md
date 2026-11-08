@@ -320,8 +320,8 @@ handled by [`Tools/android/build-android.sh`](Tools/android/build-android.sh):
 1. **Force the source arm.** SwiftPM evaluates `Package.swift` on the *build
    host*, so on macOS `#if os(macOS)` is true and the manifest would pick the
    Apple XCFramework arm even for an Android build. Set
-   **`SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1`** to select the from-source arm (and
-   pull in swift-crypto for the loader's SHA-256) regardless of host.
+   **`SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1`** to select the from-source arm
+   regardless of host.
 2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible —
    a 6.3.2 Android SDK must be driven by a 6.3.2 *host* compiler, or the build
    fails with `module compiled with Swift 6.3.2 cannot be imported by the Swift

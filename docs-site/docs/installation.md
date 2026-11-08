@@ -75,8 +75,10 @@ Pin a version tag for a remote dependency; clone `main` for local development.
 
 ## Building the API documentation
 
-SwiftStockfish ships a DocC catalog and depends on the
-[swift-docc-plugin](https://github.com/swiftlang/swift-docc-plugin):
+SwiftStockfish ships a DocC catalog but does not depend on the
+[swift-docc-plugin](https://github.com/swiftlang/swift-docc-plugin), so every
+consumer's resolve stays free of it. Add the plugin to a local checkout's
+`Package.swift` (without committing it) to run:
 
 ```bash
 swift package generate-documentation --target SwiftStockfish

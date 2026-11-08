@@ -37,6 +37,7 @@ UPSTREAM_REPO="https://github.com/official-stockfish/Stockfish.git"
 DEST="Sources/CStockfish/stockfish"
 PATCH_DIR="Tools/patches"
 VERSION_FILE=".upstream-version"
+NOTICES_FILE="THIRD_PARTY_NOTICES.md"
 
 tag="${1:-}"
 if [ -z "$tag" ]; then
@@ -44,7 +45,7 @@ if [ -z "$tag" ]; then
   echo "No tag argument; re-vendoring the pinned tag: $tag"
 fi
 
-for tool in git rsync patch; do
+for tool in git rsync patch python3; do
   command -v "$tool" >/dev/null 2>&1 || { echo "error: '$tool' is required on PATH" >&2; exit 1; }
 done
 
@@ -114,6 +115,11 @@ fi
 
 echo "==> Recording pinned version: ${tag}"
 printf '%s\n' "$tag" > "$VERSION_FILE"
+
+# The notices point at .upstream-version rather than repeating the tag; make
+# sure they still agree with it and with Package.swift (Fianchetto-b32.205).
+echo "==> Checking ${NOTICES_FILE}"
+python3 Tools/check-third-party-notices.py
 
 cat <<DONE
 

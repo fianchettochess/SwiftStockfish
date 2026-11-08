@@ -24,6 +24,20 @@ permissions:
   contents: read
 
 jobs:
+  # The notices are what a GPL corresponding-source reader follows. They named
+  # sf_18 for a release after .upstream-version moved to sf_19, and listed two
+  # dependencies Package.swift had dropped (Fianchetto-b32.205). Separate from
+  # the build job because the Swift container carries no python3.
+  third-party-notices:
+    name: SwiftStockfish — third-party notices agree with the package
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout SwiftStockfish
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Notices name the vendored tag and the real dependencies
+        run: python3 Tools/check-third-party-notices.py
+
   linux-x86_64:
     name: SwiftStockfish — source-engine tests (Linux x86_64)
     runs-on: ubuntu-latest

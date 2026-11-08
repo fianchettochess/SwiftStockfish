@@ -80,8 +80,8 @@ cross-compiling from macOS, all handled by `Tools/android/build-android.sh`:
 1. **Force the source target.** SwiftPM evaluates `Package.swift` on the build host,
    so on macOS `#if os(macOS)` is true and the manifest would otherwise select the
    Apple XCFramework target even for an Android build. Set
-   `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source target (and pull
-   in swift-crypto for the loader's SHA-256) regardless of host.
+   `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source target
+   regardless of host.
 2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible: a
    6.3.2 Android SDK must be driven by a matching 6.3.2 host compiler. Install the
    matching toolchain and invoke it explicitly (e.g. `swiftly run swift build …`).
