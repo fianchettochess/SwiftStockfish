@@ -175,9 +175,12 @@ struct StockfishEngineIntegrationTests {
     ///
     /// HOW IT COULD BREAK BY ACCIDENT: the directory travels to Stockfish as a
     /// UTF-8 `argv[0]` and nowhere else. On Windows it stays intact only because
-    /// three things agree: the 0006 patch keeps the embedder's argv, upstream's
-    /// `UCIEngine` decodes it with `path_from_utf8` into a wide `fs::path`, and
-    /// `load_external` opens that path with the wide `std::ifstream` overload.
+    /// four things agree: the 0006 patch keeps the embedder's argv, upstream's
+    /// `UCIEngine` decodes it with `path_from_utf8` into a wide `fs::path`, the
+    /// 0003 patch stops `get_binary_directory` replacing that path with the host
+    /// executable's (`GetModuleFileNameW`, which discards the net directory),
+    /// and `load_external` opens the result with the wide `std::ifstream`
+    /// overload.
     /// A re-vendor or a bridge edit that narrows any link hands Windows an ANSI
     /// path, the net is not found, and the FIRST `go` calls `exit(EXIT_FAILURE)`.
     ///
@@ -204,6 +207,17 @@ struct StockfishEngineIntegrationTests {
             try fileManager.copyItem(
                 at: shared.appendingPathComponent(network.filename),
                 to: dir.appendingPathComponent(network.filename)
+            )
+        }
+
+        // Stockfish looks for the net in the working directory BEFORE the net
+        // directory, so a net lying there would let this pass with `dir` never
+        // read. Refuse to run rather than pass for the wrong reason.
+        let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        for network in StockfishNetworks.required {
+            try #require(
+                !fileManager.fileExists(atPath: cwd.appendingPathComponent(network.filename).path),
+                "\(network.filename) is in the working directory \(cwd.path); the engine would load it from there"
             )
         }
 

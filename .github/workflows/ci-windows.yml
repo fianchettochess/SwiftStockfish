@@ -183,16 +183,33 @@ jobs:
       - name: Test
         run: swift test
 
-      # Keyed on the file that pins the net (StockfishNetworks.swift), so a net
-      # bump is a new key rather than a stale entry.
+      # Keyed on the pinned digests themselves, read out of StockfishNetworks.swift,
+      # so a net bump is a new key and a comment edit there is not.
+      - name: Read the pinned net digests
+        id: nets
+        shell: pwsh
+        run: |
+          $digests = Select-String -Path Sources/SwiftStockfish/StockfishNetworks.swift `
+            -Pattern 'sha256: "([0-9a-f]{64})"' -AllMatches |
+            ForEach-Object { $_.Matches } | ForEach-Object { $_.Groups[1].Value }
+          if (-not $digests) {
+            Write-Host "::error::No sha256 pin found in StockfishNetworks.swift."
+            exit 1
+          }
+          "key=$($digests -join '-')" >> $env:GITHUB_OUTPUT
+
       - name: Restore the Stockfish net
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/swiftstockfish-nnue
-          key: swiftstockfish-nnue-${{ hashFiles('Sources/SwiftStockfish/StockfishNetworks.swift') }}
+          key: swiftstockfish-nnue-${{ steps.nets.outputs.key }}
 
+      # Release configuration: the test hashes the ~94 MB net at least twice
+      # (fixture, then the engine preflight on the copy) with the portable
+      # SHA-256 Windows uses, which is slow unoptimised (about 150 s per pass
+      # was measured for the earlier Swift kernel in a debug build).
       - name: Test a non-ASCII net directory against a live engine
         env:
           SWIFTSTOCKFISH_INTEGRATION: '1'
           SWIFTSTOCKFISH_NNUE_CACHE: ${{ runner.temp }}/swiftstockfish-nnue
-        run: swift test --filter nonASCIINetworkDirectoryLoadsAndSearches
+        run: swift test -c release --filter nonASCIINetworkDirectoryLoadsAndSearches
