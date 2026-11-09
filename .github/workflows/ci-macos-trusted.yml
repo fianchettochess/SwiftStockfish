@@ -1,8 +1,10 @@
 name: SwiftStockfish — CI (macOS prebuilt XCFramework)
 
-# This workflow executes repository code on a persistent self-hosted machine.
-# Keep its trigger surface limited to trusted default-branch pushes and manual
-# dispatches; pull requests belong in the GitHub-hosted `ci.yml` workflow.
+# Trusted macOS coverage: the prebuilt-XCFramework path with the live engine on
+# an Intel Mac. Its trigger surface stays limited to default-branch pushes and
+# manual dispatches, and pull requests belong in `ci.yml`. That limit predates
+# the move to GitHub-hosted runners and is kept so that moving this job back to
+# a persistent self-hosted machine stays a one-line `runs-on` change.
 
 on:
   workflow_dispatch:
@@ -16,30 +18,31 @@ concurrency:
 permissions:
   contents: read
 
-env:
-  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+# No DEVELOPER_DIR here: Tools/verify-macos-build-host.sh selects Xcode 26.x
+# for the runner it lands on and exports it to every later step.
 
 jobs:
-  macos-self-hosted:
-    name: SwiftStockfish — prebuilt-XCFramework tests (Intel self-hosted macOS, live engine)
-    # Public-visibility prerequisite: restrict the organization runner group to
-    # fianchettochess/SwiftStockfish/.github/workflows/ci-macos-trusted.yml@refs/heads/main.
-    # These generic labels route jobs; they are not an authorization boundary.
-    runs-on: [self-hosted, macOS, X64]
+  macos-intel:
+    name: SwiftStockfish — prebuilt-XCFramework tests (Intel macOS, live engine)
+    # GitHub-hosted Intel image with Xcode 26.x; see release.yml for the
+    # reasoning. To move back to the self-hosted Mac, change only this line to
+    # `[self-hosted, macOS, X64]`.
+    runs-on: macos-26-intel
     # 30 was right when the framework was committed and this job only built
-    # and tested. It now builds all ten slices first; the release job, which
-    # does that plus both test arms and the upload, takes about 17 minutes.
-    timeout-minutes: 60
+    # and tested. It now builds all ten slices first: about 25 minutes on the
+    # self-hosted Mac Pro, so roughly three times that on a 4-vCPU
+    # hosted Intel runner.
+    timeout-minutes: 120
     steps:
       - name: Checkout SwiftStockfish
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The trusted runner owns its workspace; avoid copying its account's
-          # global .gitconfig into the Actions log for safe-directory setup.
+          # The runner account owns its workspace (hosted or self-hosted);
+          # skip adding a global safe-directory exception it does not need.
           set-safe-directory: false
           persist-credentials: false
-      - name: Verify self-hosted toolchain and CPU capabilities
-        run: Tools/verify-self-hosted-macos.sh
+      - name: Select Xcode 26 and verify toolchain and CPU capabilities
+        run: Tools/verify-macos-build-host.sh
       # main is PATH MODE: the binaryTarget points at Frameworks/Stockfish.xcframework,
       # and since "Stop committing the xcframework" that file is gitignored and
       # absent from a fresh checkout. Without this step `swift build` fails at
@@ -52,8 +55,11 @@ jobs:
       - name: Build prebuilt-XCFramework package path
         run: swift build
       - name: Test prebuilt-XCFramework path with live engine
-        # The live suite shares one serialized, versioned NNUE fixture and
-        # reuses valid cached downloads across trusted runs on this machine.
+        # The live suite shares one serialized, versioned NNUE fixture. A
+        # fresh hosted runner downloads it (about 94 MB) every run; the loader
+        # verifies its full pinned SHA-256 before use. Keeping it under
+        # RUNNER_TEMP keeps it inside the job's own scratch space on any runner.
         env:
           SWIFTSTOCKFISH_INTEGRATION: '1'
+          SWIFTSTOCKFISH_NNUE_CACHE: ${{ runner.temp }}/swiftstockfish-nnue
         run: swift test

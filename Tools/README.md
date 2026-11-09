@@ -8,8 +8,10 @@ recompile Stockfish — they just link this binary.
 
 > **CI runs this script too.** The repo's `Release binary` workflow
 > (`.github/workflows/release.yml`) runs `Tools/build-xcframework.sh` on
-> the trusted self-hosted Intel Mac with a full Xcode 26.x installation, its
-> Apple Swift 6.x toolchain, and AVX2/BMI2 support. Patch-level toolchain updates
+> GitHub's hosted Intel macOS image (`macos-26-intel`). First,
+> `Tools/verify-macos-build-host.sh` selects the newest installed Xcode 26.x
+> (or a `DEVELOPER_DIR` already set) and fails unless it has an Apple Swift 6.x
+> toolchain and the CPU supports AVX2/BMI2. Patch-level toolchain updates
 > are accepted. It verifies the source SIMD contract and exercises all tests
 > against both the source engine and the freshly rebuilt binary, then stages a
 > draft release and creates the final tag once at the checksummed `url:`

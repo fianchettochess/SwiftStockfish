@@ -163,10 +163,11 @@ network. The first run downloads about 94 MB; later runs reuse valid files.
 CI builds the Linux source arm in a digest-pinned snapshot of Swift's
 `nightly-6.4.x-jammy` release-branch image. Pull requests run only on that
 GitHub-hosted job. A separate trusted workflow, triggered by pushes to `main`
-and manual dispatches but never by pull requests, verifies a full Xcode 26.x
-installation with its Apple Swift 6.x toolchain and AVX2/BMI2 support on the
-self-hosted Intel Mac. Patch-level Xcode and Swift updates are accepted because
-the release contract is capability-based. The workflow then links the Apple
+and manual dispatches but never by pull requests, runs on GitHub's hosted Intel
+macOS image (`macos-26-intel`). It selects the newest installed Xcode 26.x and
+verifies its Apple Swift 6.x toolchain and the CPU's AVX2/BMI2 support.
+Patch-level Xcode and Swift updates are accepted because the release contract
+is capability-based. The workflow then links the Apple
 binary target and runs the full live suite. The release workflow also rebuilds
 and tests the exact XCFramework before publishing it.
 
@@ -356,11 +357,15 @@ rejected; published versions are never re-cut or force-moved. The workflow
 derives the allowed `19.0.x` wrapper line from `.upstream-version` and rejects a
 version from another engine line.
 
-The workflow runs on the trusted self-hosted Intel Mac Pro, selects
-`/Applications/Xcode.app`, requires a full Xcode 26.x installation with an
-Apple Swift 6.x toolchain, and verifies AVX2/BMI2 before building. Patch-level
-Xcode build and Swift versions may advance within those major lines. In one
-pass, it:
+The workflow runs on GitHub's hosted Intel macOS image (`macos-26-intel`).
+[`Tools/verify-macos-build-host.sh`](Tools/verify-macos-build-host.sh) selects
+the newest `/Applications/Xcode_26.x.app` the image provides (falling back to
+`/Applications/Xcode.app` on a single-Xcode Mac), requires a full Xcode 26.x
+installation with an Apple Swift 6.x toolchain, and verifies x86_64 with
+AVX2/BMI2 before building. Patch-level Xcode build and Swift versions may
+advance within those major lines. The job keeps no state between runs. If
+GitHub retires hosted Intel macOS, moving the release back to a self-hosted
+Intel Mac is a one-line `runs-on` change. In one pass, it:
 
 1. Verifies that it is running from the current default-branch head and that the
    requested version, tag, and release are unused.
@@ -371,7 +376,7 @@ pass, it:
    inventory plus the watch per-architecture deployment metadata, and confirms
    that the x86_64 archive still contains AVX2 and BMI2 instructions.
 4. Runs every declared package test, including the live UCI suite, against the
-   freshly rebuilt macOS x86_64 binary slice on the trusted Intel runner. ARM
+   freshly rebuilt macOS x86_64 binary slice on the Intel runner. ARM
    slices are cross-built and architecture/deployment-validated; Xcode Cloud
    will provide arm64 runtime coverage once enabled.
 5. Archives the exact framework, extracts and byte-compares it, and computes its
