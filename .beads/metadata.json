@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "swiftstockfish",
+  "project_id": "73642d11-15fb-4eb4-8025-e043e2d8516d"
+}
