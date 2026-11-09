@@ -32,18 +32,26 @@ permissions:
 env:
   VERSION: ${{ inputs.version }}
   ASSET: Stockfish.xcframework.zip
-  DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+  # No DEVELOPER_DIR here: Tools/verify-macos-build-host.sh selects Xcode 26.x
+  # for the runner it lands on and exports it to every later step.
 
 jobs:
   release:
     name: SwiftStockfish — build/publish XCFramework release
-    # Manual dispatch checks out only the current default-branch head, so fork
-    # pull requests never execute code on this persistent release machine.
-    # Public-visibility prerequisite: restrict the organization runner group to
-    # fianchettochess/SwiftStockfish/.github/workflows/release.yml@refs/heads/main.
-    # These generic labels route jobs; they are not an authorization boundary.
-    runs-on: [self-hosted, macOS, X64]
-    timeout-minutes: 120
+    # Manual dispatch checks out only the current default-branch head (or an
+    # existing tag, for a backfill), so fork pull requests never reach this job.
+    #
+    # RUNNER. A GitHub-hosted Intel image: the repository is public, so hosted
+    # minutes are free, and the x86_64 binary slice must be tested on x86_64
+    # hardware with AVX2/BMI2. macos-26-intel ships Xcode 26.x side by side as
+    # /Applications/Xcode_26.N.app; the host check picks the newest one. If
+    # GitHub retires hosted Intel macOS, change only this line back to
+    # `[self-hosted, macOS, X64]` — the host check, steps and paths are
+    # runner-neutral.
+    runs-on: macos-26-intel
+    # About 18 minutes on the self-hosted Mac Pro; a standard hosted
+    # Intel runner has 4 vCPUs, so budget roughly three times that.
+    timeout-minutes: 180
     steps:
       - name: Checkout release source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -52,8 +60,8 @@ jobs:
           # A tag builds THAT line instead — see the source-revision guard.
           ref: ${{ inputs.source_ref }}
           fetch-depth: 0
-          # The runner account owns its workspace; avoid importing its global
-          # Git configuration solely to add a safe-directory exception.
+          # The runner account owns its workspace (hosted or self-hosted);
+          # skip adding a global safe-directory exception it does not need.
           set-safe-directory: false
           persist-credentials: false
 
@@ -142,8 +150,8 @@ jobs:
             exit 1
           fi
 
-      - name: Verify self-hosted toolchain and CPU capabilities
-        run: Tools/verify-self-hosted-macos.sh
+      - name: Select Xcode 26 and verify toolchain and CPU capabilities
+        run: Tools/verify-macos-build-host.sh
 
       - name: Verify source-engine SIMD configuration
         run: Tools/verify-simd-config.sh
@@ -152,6 +160,9 @@ jobs:
         env:
           SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE: '1'
           SWIFTSTOCKFISH_INTEGRATION: '1'
+          # Inside the job's scratch space on any runner; the loader verifies
+          # the pinned SHA-256 of every net before use.
+          SWIFTSTOCKFISH_NNUE_CACHE: ${{ runner.temp }}/swiftstockfish-nnue
         run: swift test --scratch-path "${RUNNER_TEMP}/swiftstockfish-release-source"
 
       - name: Build exact XCFramework
@@ -203,6 +214,7 @@ jobs:
       - name: Test rebuilt binary delivery path — including live engine integration
         env:
           SWIFTSTOCKFISH_INTEGRATION: '1'
+          SWIFTSTOCKFISH_NNUE_CACHE: ${{ runner.temp }}/swiftstockfish-nnue
         run: swift test --scratch-path "${RUNNER_TEMP}/swiftstockfish-release-binary"
 
       - name: Archive and verify the exact asset
