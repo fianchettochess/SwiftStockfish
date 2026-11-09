@@ -8,7 +8,7 @@
 #   1. SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1 — `Package.swift` is evaluated on the
 #      build HOST, so on macOS `#if os(macOS)` is true and the manifest would pick
 #      the Apple xcframework arm even for an Android build. This forces the
-#      from-source engine arm (and pulls swift-crypto for the NNUE SHA-256).
+#      from-source engine arm.
 #   2. A host Swift toolchain that MATCHES the Swift Android SDK version (Swift
 #      modules are not forward-compatible). Driven via `swiftly run` when present.
 #   3. The NDK's `llvm-ar` as the librarian — Apple's cctools `ar` can't read the

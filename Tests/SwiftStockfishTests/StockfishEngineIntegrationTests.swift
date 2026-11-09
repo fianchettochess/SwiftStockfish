@@ -36,10 +36,19 @@ import FoundationNetworking
 private enum SharedNNUEFixture {
     static let directory: Task<URL, any Error> = Task {
         let fileManager = FileManager.default
-        let cacheRoot = fileManager.urls(
-            for: .cachesDirectory,
-            in: .userDomainMask
-        ).first ?? fileManager.temporaryDirectory
+        // SWIFTSTOCKFISH_NNUE_CACHE lets a CI job put the cache where its
+        // cache action can save and restore it (the Windows gate does), rather
+        // than guessing where Foundation puts `.cachesDirectory` on each OS.
+        let cacheRoot: URL
+        if let override = ProcessInfo.processInfo.environment["SWIFTSTOCKFISH_NNUE_CACHE"],
+           !override.isEmpty {
+            cacheRoot = URL(fileURLWithPath: override, isDirectory: true)
+        } else {
+            cacheRoot = fileManager.urls(
+                for: .cachesDirectory,
+                in: .userDomainMask
+            ).first ?? fileManager.temporaryDirectory
+        }
         let manifestKey = StockfishNetworks.required
             .map(\.shaPrefix)
             .joined(separator: "-")
@@ -156,6 +165,74 @@ struct StockfishEngineIntegrationTests {
         #expect(readyok == "readyok")
 
         // 5. position startpos + go depth 1 → a bestmove line.
+        engine.send("position startpos")
+        engine.send("go depth 1")
+        let bestmove = try await waitForLine(from: engine) { $0.hasPrefix("bestmove") }
+        #expect(bestmove.hasPrefix("bestmove"))
+    }
+
+    /// GATES: a net directory whose path is not ASCII still reaches the engine.
+    ///
+    /// HOW IT COULD BREAK BY ACCIDENT: the directory travels to Stockfish as a
+    /// UTF-8 `argv[0]` and nowhere else. On Windows it stays intact only because
+    /// four things agree: the 0006 patch keeps the embedder's argv, upstream's
+    /// `UCIEngine` decodes it with `path_from_utf8` into a wide `fs::path`, the
+    /// 0003 patch stops `get_binary_directory` replacing that path with the host
+    /// executable's (`GetModuleFileNameW`, which discards the net directory),
+    /// and `load_external` opens the result with the wide `std::ifstream`
+    /// overload.
+    /// A re-vendor or a bridge edit that narrows any link hands Windows an ANSI
+    /// path, the net is not found, and the FIRST `go` calls `exit(EXIT_FAILURE)`.
+    ///
+    /// WHAT THE USER WOULD LOSE: the whole application, at the first analysis,
+    /// for anyone whose install path contains a character like the `é` in
+    /// `C:\Users\José` (Fianchetto-b32.167). The Windows gate runs this test on
+    /// the platform where the failure lives; on macOS and Linux it pins that the
+    /// directory reaches the engine at all.
+    @Test("a net directory with non-ASCII characters loads and searches")
+    func nonASCIINetworkDirectoryLoadsAndSearches() async throws {
+        let shared = try await SharedNNUEFixture.directory.value
+        let fileManager = FileManager.default
+        // Latin-1 range (é, Ü, ï: representable in CP-1252) AND characters no
+        // single-byte code page holds (ネット), so an ANSI fallback cannot pass
+        // by luck on a Western-locale runner.
+        let root = fileManager.temporaryDirectory
+            .appendingPathComponent("SwiftStockfish-\(UUID().uuidString)", isDirectory: true)
+        let dir = root
+            .appendingPathComponent("José", isDirectory: true)
+            .appendingPathComponent("Ünïcode ネット", isDirectory: true)
+        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: root) }
+        for network in StockfishNetworks.required {
+            try fileManager.copyItem(
+                at: shared.appendingPathComponent(network.filename),
+                to: dir.appendingPathComponent(network.filename)
+            )
+        }
+
+        // Stockfish looks for the net in the working directory BEFORE the net
+        // directory, so a net lying there would let this pass with `dir` never
+        // read. Refuse to run rather than pass for the wrong reason.
+        let cwd = URL(fileURLWithPath: fileManager.currentDirectoryPath, isDirectory: true)
+        for network in StockfishNetworks.required {
+            try #require(
+                !fileManager.fileExists(atPath: cwd.appendingPathComponent(network.filename).path),
+                "\(network.filename) is in the working directory \(cwd.path); the engine would load it from there"
+            )
+        }
+
+        guard let engine = StockfishEngine(networkDirectory: dir) else {
+            throw IntegrationError.engineCreationFailed
+        }
+        defer { engine.quit() }
+
+        engine.uci()
+        _ = try await waitForLine(from: engine) { $0 == "uciok" }
+        engine.isReady()
+        _ = try await waitForLine(from: engine) { $0 == "readyok" }
+
+        // `go` is where an unloaded net is detected, by exiting the process;
+        // reaching `bestmove` is the proof the net came from `dir`.
         engine.send("position startpos")
         engine.send("go depth 1")
         let bestmove = try await waitForLine(from: engine) { $0.hasPrefix("bestmove") }

@@ -86,7 +86,7 @@ specific to building from a macOS host, all handled by
    build host, so on macOS `#if os(macOS)` is true and the manifest would select
    the Apple XCFramework even for an Android target. Set
    `SWIFTSTOCKFISH_FORCE_SOURCE_ENGINE=1` to select the from-source delivery path
-   (and pull in swift-crypto for the loader's SHA-256) regardless of host.
+   regardless of host.
 2. **Match the toolchain to the SDK.** Swift modules are not forward-compatible —
    a 6.3.2 Android SDK must be driven by a matching 6.3.2 host compiler. Install
    the matching toolchain and invoke it explicitly (e.g. `swiftly run swift

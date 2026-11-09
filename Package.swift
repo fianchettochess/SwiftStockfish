@@ -246,9 +246,8 @@ let package = Package(
         // default run (it needs a ~94 MB net download + a live engine).
         .testTarget(
             name: "SwiftStockfishTests",
-            // `cryptoTargetDeps` is empty on Apple and links swift-crypto on
-            // non-Apple, where the loader test hashes a synthetic net with
-            // `SHA256` (CryptoKit has no Linux module).
+            // `cryptoTargetDeps` is empty everywhere; the loader test hashes a
+            // synthetic net with the package's own `SHA256` off Apple.
             dependencies: ["SwiftStockfish"] + cryptoTargetDeps
         ),
     ],

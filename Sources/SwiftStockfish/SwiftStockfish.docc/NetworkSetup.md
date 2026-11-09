@@ -131,9 +131,9 @@ becomes a directory holding exactly the 18.1 nets with no manual cleanup.
 
 ## Cross-platform crypto
 
-The checksum verification uses CryptoKit on Apple and swift-crypto on non-Apple
-hosts — the same `SHA256` API. The dependency is pulled in only on non-Apple
-builds (or a forced source build), so the Apple dependency graph is unchanged.
+The checksum verification uses CryptoKit on Apple and the package's own
+FIPS 180-4 `SHA256` on other hosts. Neither is a package dependency, so every
+host resolves the same empty dependency graph.
 
 ## See Also
 

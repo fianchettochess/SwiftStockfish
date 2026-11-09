@@ -132,7 +132,6 @@ installs across 18 → 19: two nets pruned, one downloaded, no migration step.
 
 ## Cross-platform crypto
 
-The checksum verification uses CryptoKit on Apple platforms and swift-crypto on
-non-Apple hosts, through the same `SHA256` API. The swift-crypto dependency is
-pulled in only on non-Apple builds (or a forced source build), so the Apple
-dependency graph is unchanged.
+The checksum verification uses CryptoKit on Apple platforms and the package's
+own FIPS 180-4 `SHA256` on other hosts. Neither is a package dependency, so
+every host resolves the same empty dependency graph.

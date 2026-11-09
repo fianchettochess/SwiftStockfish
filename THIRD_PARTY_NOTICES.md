@@ -22,12 +22,12 @@ alongside the source and applies to that helper.
 
 ## Swift package dependencies
 
-- [swift-crypto](https://github.com/apple/swift-crypto) supplies the `Crypto`
-  SHA-256 implementation on non-Apple hosts and is licensed under Apache 2.0.
-- [Swift-DocC Plugin](https://github.com/swiftlang/swift-docc-plugin) is a
-  build-time documentation dependency licensed under Apache 2.0. It is not
-  linked into the SwiftStockfish products.
+None. `Package.swift` declares no package dependencies: SHA-256 comes from
+CryptoKit on Apple platforms and from the package's own FIPS 180-4
+implementation (`Sources/CStockfishNetworkHash` behind
+`Sources/SwiftStockfish/SHA256.swift`) elsewhere.
 
-Those packages are resolved independently by Swift Package Manager and retain
-their own license and third-party-notice requirements. This file does not
-relicense third-party work or replace the notices shipped by those projects.
+`Tools/check-third-party-notices.py` fails if a dependency is added to
+`Package.swift` without being listed here, or listed here without being one,
+and if this file names a Stockfish tag other than the one in
+`.upstream-version`, which stays the single place the tag is recorded.
