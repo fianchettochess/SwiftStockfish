@@ -507,19 +507,56 @@ public struct StockfishNetworkLoader: Sendable {
 /// re-hashes ~112 MB: ~0.5 s with CryptoKit, and 14 s (release) to 153 s
 /// (debug) with the vendored hasher on platforms that have no CryptoKit.
 ///
-/// The key includes size and modification date, so a net that is replaced,
-/// truncated, or corrupted on disk misses the memo and is verified again from
-/// scratch. Only successful verifications are recorded -- a mismatch is cheap
-/// to re-detect and must never be sticky.
-private final class VerifiedNetworkCache: @unchecked Sendable {
+/// The key includes size and modification date, so changes to either cause a
+/// fresh verification. Only successful verifications are recorded -- a mismatch
+/// is cheap to re-detect and must never be sticky.
+final class VerifiedNetworkCache: @unchecked Sendable {
     static let shared = VerifiedNetworkCache()
 
     private let lock = NSLock()
     private var verified = Set<String>()
+    private let hash: @Sendable (URL, String, String) -> Bool
 
-    /// Identity that changes whenever the file's bytes could have changed, or
-    /// whenever the digest we expect of it changes. `nil` when the file cannot
-    /// be stat'ed, which forces the slow path.
+    init(hash: @escaping @Sendable (URL, String, String) -> Bool = VerifiedNetworkCache.fileMatches) {
+        self.hash = hash
+    }
+
+    func fileMatches(_ url: URL, expectedFull: String, expectedPrefix: String) -> Bool {
+        let expected = expectedFull.isEmpty ? expectedPrefix : expectedFull
+        let identity = Self.identity(for: url, expecting: expected)
+        if let identity, isVerified(identity) { return true }
+        let matched = hash(url, expectedFull, expectedPrefix)
+        // Do not attach a match to an identity that changed during the read.
+        if matched, let identity, Self.identity(for: url, expecting: expected) == identity {
+            record(identity)
+        }
+        return matched
+    }
+
+    static func fileMatches(_ url: URL, _ expectedFull: String, _ expectedPrefix: String) -> Bool {
+        guard let handle = try? FileHandle(forReadingFrom: url) else {
+            return false
+        }
+        // `closeFile()` / `readData(ofLength:)` are the classic (non-throwing)
+        // FileHandle APIs available since iOS 13.0 / macOS 10.15.0. Their
+        // throwing replacements `close()` / `read(upToCount:)` are 10.15.4-only,
+        // which is above this package's 10.15.0 floor.
+        defer { handle.closeFile() }
+
+        var hasher = NetworkHasher()
+        while true {
+            let chunk = handle.readData(ofLength: 1 << 20)
+            if chunk.isEmpty { break }
+            hasher.update(data: chunk)
+        }
+        let digest = hasher.finalize()
+        let hex = digest.map { String(format: "%02x", $0) }.joined()
+        return expectedFull.isEmpty ? hex.hasPrefix(expectedPrefix) : hex == expectedFull
+    }
+
+    /// Metadata identity and expected digest. Same-size rewrites with a restored
+    /// modification date cannot be detected by this key. A failed stat forces
+    /// the slow path.
     static func identity(for url: URL, expecting digest: String) -> String? {
         guard let attributes = try? FileManager.default
                 .attributesOfItem(atPath: url.path),
@@ -584,42 +621,9 @@ private final class VerifiedNetworkCache: @unchecked Sendable {
     private func verify(fileAt url: URL, matches network: StockfishNetworks.Network) throws -> Bool {
         try validateManifestEntry(network)
 
-        // Prefer the full pinned SHA-256; fall back to the filename's 12-hex
-        // prefix only when a Network was constructed without a full hash (test
-        // fixtures). A file must match the WHOLE digest to be accepted.
-        let expectedFull = network.sha256
-        let expectedPrefix = network.shaPrefix
-        // A net that already matched this expected digest, at this size and
-        // modification date, in this process needs no second full read+hash.
-        let identity = VerifiedNetworkCache.identity(
-            for: url,
-            expecting: expectedFull.isEmpty ? expectedPrefix : expectedFull
+        return VerifiedNetworkCache.shared.fileMatches(
+            url, expectedFull: network.sha256, expectedPrefix: network.shaPrefix
         )
-        if let identity, VerifiedNetworkCache.shared.isVerified(identity) {
-            return true
-        }
-        guard let handle = try? FileHandle(forReadingFrom: url) else {
-            return false
-        }
-        // `closeFile()` / `readData(ofLength:)` are the classic (non-throwing)
-        // FileHandle APIs available since iOS 13.0 / macOS 10.15.0. Their
-        // throwing replacements `close()` / `read(upToCount:)` are 10.15.4-only,
-        // which is above this package's 10.15.0 floor.
-        defer { handle.closeFile() }
-
-        var hasher = NetworkHasher()
-        while true {
-            let chunk = handle.readData(ofLength: 1 << 20)
-            if chunk.isEmpty { break }
-            hasher.update(data: chunk)
-        }
-        let digest = hasher.finalize()
-        let hex = digest.map { String(format: "%02x", $0) }.joined()
-        let matched = expectedFull.isEmpty
-            ? hex.hasPrefix(expectedPrefix)
-            : hex == expectedFull
-        if matched, let identity { VerifiedNetworkCache.shared.record(identity) }
-        return matched
     }
 
     /// A non-downloading pre-flight: `true` iff every required network is present
